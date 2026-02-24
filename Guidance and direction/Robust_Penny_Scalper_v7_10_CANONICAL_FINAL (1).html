@@ -1,0 +1,1695 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Robust Penny Scalper v7.0 FINAL – وثيقة المواصفات الكاملة النهائية</title>
+  <style>
+    :root{
+      --bg:#0b1220; --panel:rgba(255,255,255,.025); --text:#e6edf6;
+      --muted:#a8b3c7; --accent:#4cc9f0; --accent2:#a78bfa;
+      --danger:#fb7185; --ok:#34d399; --warn:#fbbf24;
+      --line:#23324f; --code:#0a1020; --gold:#f59e0b;
+    }
+    *{box-sizing:border-box;}
+    body{
+      margin:0; padding:28px;
+      font-family: Arial,"Noto Kufi Arabic","Segoe UI",Tahoma,sans-serif;
+      background:linear-gradient(180deg,var(--bg),#050914 80%);
+      color:var(--text); line-height:1.9;
+    }
+    .container{max-width:1180px;margin:0 auto;}
+    /* ── Header ── */
+    header{
+      background:
+        radial-gradient(1200px 420px at 30% 0%,rgba(76,201,240,.18),rgba(0,0,0,0)),
+        radial-gradient(900px 420px at 70% 20%,rgba(167,139,250,.16),rgba(0,0,0,0));
+      border:1px solid var(--line); border-radius:18px;
+      padding:26px 26px 20px; margin-bottom:22px;
+    }
+    h1{margin:0 0 8px 0;font-size:28px;color:var(--accent);}
+    .subtitle{margin:0 0 10px 0;color:var(--muted);font-size:14px;line-height:1.7;}
+    .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;color:var(--muted);font-size:13px;}
+    .pill{border:1px solid var(--line);background:rgba(255,255,255,.03);padding:5px 12px;border-radius:999px;}
+    .pill-ok{border-color:rgba(52,211,153,.45);color:var(--ok);}
+    .pill-v7{border-color:rgba(245,158,11,.5);color:var(--gold);font-weight:bold;}
+    /* ── Nav ── */
+    nav{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:16px 0 26px;}
+    nav h2{margin:0 0 14px 0;font-size:16px;color:var(--accent2);}
+    nav ul{margin:0;padding:0 20px 0 0;columns:2;gap:30px;}
+    nav li{margin:6px 0;font-size:14px;}
+    nav a{color:var(--text);text-decoration:none;border-bottom:1px dotted rgba(230,237,246,.25);}
+    nav a:hover{color:var(--accent);}
+    /* ── Sections ── */
+    section{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 22px 18px;margin:18px 0;}
+    h2{margin:0 0 14px 0;font-size:18px;color:var(--accent);}
+    h3{margin:18px 0 8px 0;font-size:15px;color:var(--accent2);}
+    h4{margin:12px 0 6px 0;font-size:13px;color:var(--muted);font-weight:bold;text-transform:uppercase;letter-spacing:.5px;}
+    p{margin:8px 0;}
+    ul,ol{margin:8px 0 10px;padding:0 22px 0 0;}
+    li{margin:6px 0;}
+    /* ── Boxes ── */
+    .rulebox{border:1px solid rgba(251,113,133,.38);background:rgba(251,113,133,.07);padding:14px;border-radius:12px;margin:10px 0;}
+    .okbox  {border:1px solid rgba(52,211,153,.38);background:rgba(52,211,153,.07);padding:14px;border-radius:12px;margin:10px 0;}
+    .mutebox{border:1px solid rgba(76,201,240,.28);background:rgba(76,201,240,.05);padding:14px;border-radius:12px;margin:10px 0;}
+    .warnbox{border:1px solid rgba(251,191,36,.38);background:rgba(251,191,36,.08);padding:14px;border-radius:12px;margin:10px 0;}
+    .newbox {border:2px solid rgba(167,139,250,.55);background:rgba(167,139,250,.07);padding:14px;border-radius:12px;margin:10px 0;}
+    .goldbox{border:2px solid rgba(245,158,11,.5);background:rgba(245,158,11,.06);padding:14px;border-radius:12px;margin:10px 0;}
+    /* ── Code ── */
+    code,pre{direction:ltr;text-align:left;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;background:var(--code);border:1px solid var(--line);border-radius:10px;}
+    code{padding:2px 8px;font-size:13px;}
+    pre{padding:16px;overflow-x:auto;margin:10px 0;font-size:13px;line-height:1.7;}
+    /* ── Tables ── */
+    table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px;}
+    th,td{border:1px solid var(--line);padding:10px 12px;vertical-align:top;}
+    th{background:rgba(255,255,255,.04);color:var(--accent2);text-align:right;font-size:13px;}
+    td{line-height:1.7;}
+    /* ── Badges / Tags ── */
+    .badge-danger{color:var(--danger);font-weight:bold;}
+    .badge-ok{color:var(--ok);font-weight:bold;}
+    .badge-warn{color:var(--warn);font-weight:bold;}
+    .badge-new{color:var(--accent2);font-weight:bold;}
+    .badge-gold{color:var(--gold);font-weight:bold;}
+    .small{font-size:13px;color:var(--muted);}
+    .foot{margin-top:18px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);padding-top:14px;}
+    .fix-tag{display:inline-block;background:rgba(167,139,250,.15);border:1px solid rgba(167,139,250,.4);color:var(--accent2);font-size:11px;padding:2px 8px;border-radius:6px;margin-right:6px;}
+    .new-tag{display:inline-block;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.45);color:var(--gold);font-size:11px;padding:2px 8px;border-radius:6px;margin-right:6px;}
+    /* ── Locked Order ── */
+    .order-locked{
+      background:rgba(52,211,153,.04);
+      border:2px solid rgba(52,211,153,.4);
+      border-radius:12px; padding:16px; margin:12px 0;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      direction:ltr; text-align:left; line-height:2.1; font-size:14px;
+    }
+    /* ── Config table highlight ── */
+    .cfg-key{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--accent);}
+    @media(max-width:900px){nav ul{columns:1;}body{padding:14px;}}
+  </style>
+</head>
+<body>
+<div class="container">
+
+<!-- ════════════════════════ HEADER ════════════════════════ -->
+<header>
+  <h1>⬡ Robust Penny Scalper v7.0 FINAL</h1>
+  <p class="subtitle">
+    المرجع الموحَّد: v6.4 (قواعد الأساس) + v6.9 (إصلاح التعارضات) + v7.0 (Config Reference + Engineering Rationale + PDT + Session Timing).
+    وثيقة واحدة نظيفة — لا تكرار — لا تعارض — كافية لمهندس يبدأ من الصفر.
+  </p>
+  <div class="meta">
+    <span class="pill pill-v7">v7.0 FINAL</span>
+    <span class="pill">Rust Core: Tokio</span>
+    <span class="pill">Python: ib_insync Bridge</span>
+    <span class="pill">UDS + MessagePack / FlatBuffers</span>
+    <span class="pill">Internal SLA: 10ms | E2E Hard Max: 100ms</span>
+    <span class="pill pill-ok">✔ جاهزة للكود</span>
+    <span class="pill pill-ok">✔ نظيفة من التعارضات</span>
+    <span class="pill">2026-02-24</span>
+  </div>
+</header>
+
+<!-- ════════════════════════ NAV ════════════════════════ -->
+<nav>
+  <h2>جدول المحتويات</h2>
+  <ul>
+    <li><a href="#s0">0) الهدف والنطاق</a></li>
+    <li><a href="#s1">1) الممنوع والمسموح</a></li>
+    <li><a href="#s1b">1.5) واجهة المستخدم (UI)</a></li>
+    <li><a href="#s1c">1.6) تعدد اللغات</a></li>
+    <li><a href="#s2">2) ترتيب القرار المقفول ★</a></li>
+    <li><a href="#s3">3) التكامل مع IBKR</a></li>
+    <li><a href="#s4">4) Python Bridge</a></li>
+    <li><a href="#s5">5) المعمارية والتزامن</a></li>
+    <li><a href="#s6">6) نموذج البيانات والأحداث</a></li>
+    <li><a href="#s7">7) Tiered Watchlist + TickReady</a></li>
+    <li><a href="#s8">8) Universe Liquidity Filter</a></li>
+    <li><a href="#s8b">8.5) Corporate Actions Gate</a></li>
+    <li><a href="#s8c">8.75) Price Range Gate</a></li>
+    <li><a href="#s9">9) Daily Context Filter</a></li>
+    <li><a href="#s10">10) MTF Context Analysis</a></li>
+    <li><a href="#s11">11) Regime Gate</a></li>
+    <li><a href="#s12">12) Cold Start Solution</a></li>
+    <li><a href="#s13">13) Tape Engine + Ring Buffers</a></li>
+    <li><a href="#s14">14) Microstructure Guards + TTL</a></li>
+    <li><a href="#s15">15) Entry Trigger + Anti-Chase</a></li>
+    <li><a href="#s16">16) Position Sizing + Stops</a></li>
+    <li><a href="#s17">17) Exposure + Correlation</a></li>
+    <li><a href="#s18">18) Fees + Slippage + ExpectedNet</a></li>
+    <li><a href="#s19">19) Execution Engine + OMS</a></li>
+    <li><a href="#s20">20) Risk Engine + Kill Switch</a></li>
+    <li><a href="#s21">21) T+1 Settlement + PDT ★</a></li>
+    <li><a href="#s22">22) Latency SLA</a></li>
+    <li><a href="#s23">23) Reconnect Protocol</a></li>
+    <li><a href="#s24">24) Observability</a></li>
+    <li><a href="#s25">25) Pre/After-Hours + Session Timing ★</a></li>
+    <li><a href="#s26">26) Test Harness + Walk-Forward</a></li>
+    <li><a href="#s27">27) Calendar Risk Automation</a></li>
+    <li><a href="#s28">28) Adaptive Thresholds</a></li>
+    <li><a href="#s29">29) Symbol Blocklist</a></li>
+    <li><a href="#s30">30) Deliverables</a></li>
+    <li><a href="#s31">31) Crate Layout</a></li>
+    <li><a href="#s32">32) Engineering Rationale ★ جديد</a></li>
+    <li><a href="#s33">33) Config Reference Table ★ جديد</a></li>
+    <li><a href="#s34">34) سجل التغييرات الكامل</a></li>
+  </ul>
+  <p class="small">★ = قسم جديد أو مُصلَح جوهرياً | ✦ = إصلاح تعارض | <span class="badge-gold">⬡ جديد كلياً في v7.0</span></p>
+</nav>
+
+<!-- ════════════════════════ §0 ════════════════════════ -->
+<section id="s0">
+  <h2>0) الهدف والنطاق</h2>
+  <ul>
+    <li>سكالبينغ زخم أسهم السنتات. الإطار الزمني: ثوانٍ إلى دقائق.</li>
+    <li><b>Long-Only.</b> لا Short.</li>
+    <li><b>Cash Account فقط.</b> لا Margin. لا Borrow. لا Leverage.</li>
+    <li>هدف الصفقة: <b>50$ Gross أو 10% من سعر الدخول</b> — أيهما يتحقق أولاً.</li>
+    <li>الأولوية: <b>حماية رأس المال قبل الربح.</b></li>
+  </ul>
+  <div class="mutebox">
+    <b>نطاق الاستخدام:</b>
+    <ul>
+      <li>شخصي. غير تجاري. غير موزَّع.</li>
+      <li><b>MaxDailyLossUSD = 100$</b> — مُعايَر لحجم الحساب الحالي.</li>
+      <li>تعديل يدوي للحد إذا تغيّر رأس المال أكثر من <b>25%.</b></li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §1 ════════════════════════ -->
+<section id="s1">
+  <h2>1) الممنوع والمسموح (Non-Negotiables)</h2>
+  <div class="rulebox">
+    <b class="badge-danger">ممنوع نهائيًا — لا استثناء</b>
+    <ul>
+      <li>Short / Margin / Borrow / Leverage.</li>
+      <li>فتح صفقة خارج Tier A أو خارج Regime = Normal.</li>
+      <li>أي I/O أو allocations داخل FastLoop بعد الإقلاع.</li>
+      <li>أي صفقة إذا <code>ExpectedNet ≤ 0</code>.</li>
+      <li>أي Filtering أو حسابات تداول داخل Python.</li>
+      <li>إعادة إرسال أوامر دون idempotency key.</li>
+      <li>JSON في المسار الحرج (hot path).</li>
+      <li>فتح صفقة على رمز في Symbol Blocklist.</li>
+      <li>تعديل Config أثناء وجود مركز مفتوح.</li>
+    </ul>
+  </div>
+  <div class="okbox">
+    <b class="badge-ok">مطلوب دائمًا</b>
+    <ul>
+      <li>DecisionLog لكل قرار قبول/رفض مع RejectReason واحد رئيسي.</li>
+      <li>Monitor Only عند: Data degraded أو SLA breach أو Risk breach.</li>
+      <li>Reconnect يبني الحالة من الواقع (IBKR truth) لا من الذاكرة.</li>
+      <li>O(1) per event في كل مسار حرج (FastLoop).</li>
+      <li>Server-side Stop موجود قبل أي مركز مفتوح.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §1.5 ════════════════════════ -->
+<section id="s1b">
+  <h2>1.5) واجهة المستخدم (UI) <span class="fix-tag">★ مدمجة</span></h2>
+  <div class="okbox">الهدف: واجهة تشغيل مؤسسية تمنع الأخطاء وتعرض الحالة لحظياً. الواجهة لا تحتوي منطق تداول.</div>
+
+  <h3>1.5.1 مبادئ حاكمة</h3>
+  <div class="rulebox">
+    <ul>
+      <li><b>الواجهة تتحكم فقط في Config</b> — لا تتدخل في قرار الدخول/الخروج.</li>
+      <li>أي تغيير إعدادات أثناء وجود صفقة مفتوحة = <b>مرفوض</b> (UI Validation + Backend Guard).</li>
+      <li>أي وضع <code>Monitor Only</code> يظهر بوضوح وبألوان تحذيرية لا يمكن تجاهلها.</li>
+    </ul>
+  </div>
+
+  <h3>1.5.2 شاشات إلزامية</h3>
+  <ul>
+    <li><b>Dashboard:</b> Regime, DataQuality, RiskState, OMSState, Latency(P95), DailyPnL, OpenPositions, SessionTime.</li>
+    <li><b>Settings:</b> جميع إعدادات التداول ضمن حدود وقواعد تحقق صارمة (راجع §33).</li>
+    <li><b>Backtest:</b> واجهة تشغيل باك تست يدوي متعدد المستويات + عرض نتائج موحد.</li>
+    <li><b>Logs &amp; Reports:</b> DecisionLog / TradeJournal / Rejects / SLA / DataQuality / Loss Attribution.</li>
+  </ul>
+
+  <h3>1.5.3 قواعد تحقق (Validation) إلزامية</h3>
+  <table>
+    <thead><tr><th>العنصر</th><th>القاعدة</th><th>الإجراء</th></tr></thead>
+    <tbody>
+      <tr><td>تعديل Config</td><td>مسموح فقط إذا <code>OpenPositions = 0</code> و<code>OMSState = IDLE</code></td><td>رفض + رسالة واضحة</td></tr>
+      <tr><td>تغيير Mode</td><td>Paper/Live لا يتغير أثناء صفقة</td><td>رفض + تسجيل</td></tr>
+      <tr><td>تفعيل Pre/After</td><td>يتطلب تأكيد مزدوج + يظهر وسم مخاطرة</td><td>تأكيد ثنائي</td></tr>
+      <tr><td>تعديل MaxDailyLoss</td><td>مسموح فقط قبل الجلسة + يتطلب سجل تغيير</td><td>رفض أثناء الجلسة</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ════════════════════════ §1.6 ════════════════════════ -->
+<section id="s1c">
+  <h2>1.6) تعدد اللغات (Arabic Default + English) <span class="fix-tag">★ مدمجة</span></h2>
+  <div class="okbox">العربية هي اللغة الافتراضية. الإنجليزية خيار ثانوي. الواجهة RTL في العربية، LTR في الإنجليزية.</div>
+
+  <h3>1.6.1 مبدأ التنفيذ — Project Fluent</h3>
+  <div class="mutebox">
+    <ul>
+      <li>ملفات الترجمة: <code>configs/locales/ar.ftl</code> و<code>configs/locales/en.ftl</code>.</li>
+      <li>كل نصوص الواجهة في ملفات ترجمة. لا نصوص ثابتة داخل الكود.</li>
+      <li>السجلات تحفظ <b>Codes فقط.</b> الترجمة تحدث في طبقة العرض.</li>
+      <li>أكواد الرفض ثابتة (Enum) وتظهر بعربية/إنجليزية حسب لغة الواجهة.</li>
+    </ul>
+  </div>
+
+  <h3>1.6.2 متطلبات ترجمة إلزامية</h3>
+  <ul>
+    <li>ترجمة كاملة لكل: RejectReason, GuardName, RegimeState, OMSState, RiskState, Alerts, ErrorCodes.</li>
+    <li>Fallback: مفتاح مفقود → اعرض المفتاح + <code>(MISSING_TRANSLATION)</code> + سجّل خطأ.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §2 ════════════════════════ -->
+<section id="s2">
+  <h2>2) ترتيب القرار المقفول — Locked Decision Order <span class="fix-tag">✦ مرجع وحيد</span></h2>
+
+  <div class="goldbox">
+    <b class="badge-gold">قانون المرجعية الوحيدة:</b> هذا القسم هو المرجع الحتمي الوحيد لترتيب القرار.
+    أي قائمة أو ترتيب في أي قسم آخر من هذه الوثيقة يُحيل إلى هذا القسم ولا يُعيد تعريفه.
+  </div>
+
+  <h3>2.1 الترتيب النهائي (12 خطوة — حتمية — لا استثناء)</h3>
+  <div class="order-locked">
+    1  Blocklist Check          → رفض فوري إذا Symbol في القائمة          [RejectReason: BLOCKLIST]<br>
+    2  Corporate Actions Gate   → رفض فوري إذا Block                      [RejectReason: CORP_ACTION_BLOCK]<br>
+    3  Price Range Gate         → رفض فوري إذا خارج min/max               [RejectReason: PRICE_RANGE]<br>
+    4  Universe Liquidity Gate  → رفض إذا Volume أو Spread فشل            [RejectReason: LIQUIDITY]<br>
+    5  Regime Gate              → رفض إذا Regime ≠ Normal                 [RejectReason: REGIME]<br>
+    6  Daily Context Gate       → رفض إذا محفز اليوم غائب أو Churning     [RejectReason: DAILY_CONTEXT]<br>
+    7  MTF Confirmation Gate    → رفض إذا تعارض قوي (Veto)               [RejectReason: MTF_VETO]<br>
+    8  Anti-Chase Filter        → رفض إذا RunUp ≥ 2%                      [RejectReason: ANTI_CHASE]<br>
+    9  Microstructure Guards    → رفض إذا أي Guard فشل                   [RejectReason: GUARD_&lt;NAME&gt;]<br>
+    10 TapeScore                → احسب — رفض إذا &lt; عتبة الدخول           [RejectReason: TAPE_SCORE_LOW]<br>
+    11 ExpectedNet Validation   → رفض إذا ExpectedNet ≤ 0                [RejectReason: NET_NEGATIVE]<br>
+    12 Exposure / Correlation   → رفض إذا انتهك حدود المركز              [RejectReason: EXPOSURE]<br>
+  </div>
+
+  <div class="rulebox">
+    <b>ثلاثية القفل — لا تُخترق:</b>
+    <ul>
+      <li>Gates (1–9) دائماً قبل TapeScore (10) — Gate فاشل = رفض فوري بصرف النظر عن TapeScore.</li>
+      <li>TapeScore (10) دائماً قبل ExpectedNet (11).</li>
+      <li>TapeScore مرتفع لا يُعوِّض Gate فاشل — أبداً وتحت أي ظرف.</li>
+    </ul>
+  </div>
+
+  <h3>2.2 جدول الطبقات</h3>
+  <table>
+    <thead><tr><th>الطبقة</th><th>النوع</th><th>الخطوة</th><th>الوصف</th><th>المرجع</th></tr></thead>
+    <tbody>
+      <tr><td>Blocklist</td><td>Gate (Boolean)</td><td>1</td><td>قائمة الرموز المحظورة</td><td>§29</td></tr>
+      <tr><td>Corporate Actions</td><td>Gate (Boolean)</td><td>2</td><td>Block/Watch/Allow</td><td>§8.5</td></tr>
+      <tr><td>Price Range</td><td>Gate (Boolean)</td><td>3</td><td>LastPrice بين min/max</td><td>§8.75</td></tr>
+      <tr><td>Universe Liquidity</td><td>Gate (Boolean)</td><td>4</td><td>سيولة تاريخية + سبريد</td><td>§8</td></tr>
+      <tr><td>Regime</td><td>Gate (Boolean)</td><td>5</td><td>Normal / Caution / Risk-Off</td><td>§11</td></tr>
+      <tr><td>Daily Context</td><td>Gate (Boolean)</td><td>6</td><td>محفز اليوم + Anti-Churn</td><td>§9</td></tr>
+      <tr><td>MTF Context</td><td>Gate (Boolean)</td><td>7</td><td>انسجام الأطر الزمنية</td><td>§10</td></tr>
+      <tr><td>Anti-Chase</td><td>Gate (Boolean)</td><td>8</td><td>RunUp &lt; 2%</td><td>§15</td></tr>
+      <tr><td>Microstructure Guards</td><td>Gate (Boolean)</td><td>9</td><td>6 guards بـ TTL</td><td>§14</td></tr>
+      <tr><td>TapeScore</td><td>Score (0–100)</td><td>10</td><td>يُحسب فقط بعد كل Gates</td><td>§13</td></tr>
+      <tr><td>ExpectedNet</td><td>Validation</td><td>11</td><td>Gross − Fees − Slippage &gt; 0</td><td>§18</td></tr>
+      <tr><td>Exposure / Correlation</td><td>Gate (Boolean)</td><td>12</td><td>Position limits + Pearson</td><td>§17</td></tr>
+    </tbody>
+  </table>
+
+  <h3>2.3 TapeScore Formula</h3>
+  <pre><code>TapeScore = wR×ScoreR + wA×ScoreA + wLP×ScoreLP + wSpr×ScoreSpread
+              + wAbs×ScoreAbsorption + wBLS×ScoreBidLift
+
+wR   = 0.30   # Aggressive Ratio     (الأهم — ضغط الشراء)
+wA   = 0.22   # Acceleration         (تسارع الصفقات)
+wLP  = 0.22   # Large Print          (طباعة كبيرة)
+wSpr = 0.13   # Spread Score         (كلما ضيق كلما أعلى)
+wAbs = 0.08   # Absorption           (امتصاص العرض)
+wBLS = 0.05   # Bid Lifting Sequence (رفع متدرج للـ Bid)
+# ∑ weights = 1.00
+
+عتبات الدخول:
+  FULL_ACTIVE  + Normal:            TapeScore ≥ 72
+  FULL_ACTIVE  + بعد هدف يومي:     TapeScore ≥ 82
+  WARM_ACTIVE  + Surge Override:    TapeScore ≥ 67</code></pre>
+  <p class="small">هذه قيم ابتدائية — لا تتغير إلا عبر Walk-Forward موثَّق صريح. (§26.3)</p>
+</section>
+
+<!-- ════════════════════════ §3 ════════════════════════ -->
+<section id="s3">
+  <h2>3) التكامل مع IBKR (Hybrid Architecture)</h2>
+  <table>
+    <thead><tr><th>الجزء</th><th>المسؤول</th><th>مسموح</th><th>ممنوع</th></tr></thead>
+    <tbody>
+      <tr><td>IBKR Connection</td><td>Python (ib_insync)</td><td>Connect / Subscribe / Receive / Send Orders</td><td>Logic / Filter / Compute</td></tr>
+      <tr><td>Core Engine</td><td>Rust (Tokio)</td><td>Tape / Guards / Risk / OMS Decisions</td><td>I/O داخل FastLoop</td></tr>
+      <tr><td>Bridge</td><td>Unix Domain Socket</td><td>Events + batching + backpressure</td><td>JSON / Blocking wait</td></tr>
+      <tr><td>Serialization</td><td>MessagePack أو FlatBuffers</td><td>Binary schema ثابت</td><td>JSON في hot path</td></tr>
+    </tbody>
+  </table>
+  <div class="rulebox"><b>القاعدة الذهبية:</b> Python يمرّر. Rust يقرّر. لا استثناء.</div>
+
+  <h3>3.1 QoS — أولوية الأحداث عند الضغط</h3>
+  <table>
+    <thead><tr><th>الأولوية</th><th>نوع الحدث</th><th>سياسة الإسقاط</th></tr></thead>
+    <tbody>
+      <tr><td><b>1 — حرج</b></td><td>Fills / OrderStatus / Errors</td><td>لا تُسقط أبداً</td></tr>
+      <tr><td><b>2 — عالي</b></td><td>Ticks (Tier A)</td><td>حاول الإبقاء — اسقط الأقدم إذا امتلأ</td></tr>
+      <tr><td><b>3 — متوسط</b></td><td>L2 Deltas</td><td>تُسقط قبل Ticks</td></tr>
+      <tr><td><b>4 — منخفض</b></td><td>Snapshots (Tier B/C)</td><td>تُسقط أولاً</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ════════════════════════ §4 ════════════════════════ -->
+<section id="s4">
+  <h2>4) مواصفات Python Bridge</h2>
+  <div class="rulebox"><b>الوظيفة الوحيدة:</b> Receive → Encode → Send. لا شيء آخر.</div>
+
+  <h3>4.1 ممنوع داخل Python (مطلق)</h3>
+  <div class="rulebox">
+    <ul>
+      <li>أي Filtering أو Watchlist أو Guards أو Scoring.</li>
+      <li>أي حساب R/A/LP أو Aggregation.</li>
+      <li>Heavy logging أو JSON encoding في hot path.</li>
+      <li>Blocking wait على socket داخل مسار الاستقبال.</li>
+    </ul>
+  </div>
+
+  <h3>4.2 Batching (إلزامي)</h3>
+  <ul>
+    <li>دفعة كل <b>5–10ms.</b></li>
+    <li>حد أقصى للدفعة: <b>512 حدث.</b></li>
+    <li>عند اكتمال الدفعة قبل الوقت: إرسال فوري دون انتظار المؤقت.</li>
+  </ul>
+
+  <h3>4.3 Backpressure (إلزامي)</h3>
+  <div class="mutebox">
+    <ul>
+      <li>إذا امتلأ socket buffer: لا تنتظر — أسقط وفق أولويات QoS.</li>
+      <li>ضغط مستمر &gt; 1s: أرسل <code>DataQuality = degraded</code> فوراً → Monitor Only.</li>
+    </ul>
+  </div>
+
+  <h3>4.4 Encoding</h3>
+  <ul>
+    <li><b>MessagePack</b> — للبداية السريعة وسهولة التصحيح.</li>
+    <li><b>FlatBuffers</b> — للأداء الأعلى مع ثبات schema في الإنتاج.</li>
+    <li>Buffer reuse لتقليل allocations — لا new() في hot path.</li>
+  </ul>
+
+  <h3>4.5 Heartbeat</h3>
+  <ul>
+    <li>كل <b>250ms.</b></li>
+    <li>غياب ≥ 1 ثانية = <code>DataQuality = degraded</code> → Monitor Only + تنبيه.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §5 ════════════════════════ -->
+<section id="s5">
+  <h2>5) المعمارية والتزامن (Rust / Tokio)</h2>
+
+  <h3>5.0 خريطة المهام (Tasks)</h3>
+  <ol>
+    <li><b>BridgeRxTask —</b> قراءة من UDS وفك ترميز الدفعات. منفصلة تماماً عن DataTask.</li>
+    <li><b>DataTask —</b> Router يوزع الأحداث على القنوات. bounded queue.</li>
+    <li><b>SlowLoopTask —</b> بناء Watchlist + pacing + ترقية/تنزيل Tier + حساب MTF/Correlation/Baseline.</li>
+    <li><b>FastLoopTask —</b> Tape + Guards + Trigger. O(1). لا I/O. لا allocations. سلطة قرار الدخول فقط.</li>
+    <li><b>OMSTask —</b> تنفيذ الأوامر + fills + timeouts + idempotency.</li>
+    <li><b>RiskTask —</b> Kill Switches + Loss Ladder. سلطة Monitor Only تعلو على كل طبقة.</li>
+    <li><b>MetricsTask —</b> Latency + Logs + Alerts. لا تتداخل مع FastLoop أبداً.</li>
+  </ol>
+
+  <div class="mutebox">
+    <b>مبدأ تقسيم العمل:</b>
+    SlowLoop يحسب ويخزن (MTF، Correlation، L2 Baseline، Blocklist cleanup). FastLoop يقرأ فقط ما خزّنه SlowLoop.
+  </div>
+
+  <h3>5.1 Event Bus + Shared State</h3>
+  <ul>
+    <li>Event Bus: <code>tokio::mpsc</code> لكل قناة (bounded).</li>
+    <li>Watchlist snapshot: <code>Arc&lt;ArcSwap&lt;WatchlistSnapshot&gt;&gt;</code> — FastLoop يقرأ فقط، لا lock.</li>
+  </ul>
+
+  <h3>5.2 DataTask Queue Policy</h3>
+  <div class="mutebox">
+    <ul>
+      <li>Queue داخلية <b>محدودة السعة (bounded).</b></li>
+      <li>عند الامتلاء: إسقاط حسب QoS (§3.1).</li>
+      <li>إذا فُقدت 3 دفعات متتالية → <code>DataQuality = degraded</code> + Monitor Only.</li>
+    </ul>
+  </div>
+
+  <h3>5.3 قواعد أداء حتمية للـ FastLoop</h3>
+  <div class="rulebox">
+    <ul>
+      <li>لا I/O من أي نوع بعد الإقلاع.</li>
+      <li>لا allocations (no Box, Vec::new, String::from داخل الحلقة).</li>
+      <li>Ring Buffers ثابتة الحجم — تُخصَّص مرة واحدة عند الإقلاع.</li>
+      <li>أي خرق = SLA breach → Monitor Only + تسجيل.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §6 ════════════════════════ -->
+<section id="s6">
+  <h2>6) نموذج البيانات والأحداث</h2>
+
+  <h3>6.1 حقول الحدث الإلزامية</h3>
+  <ul>
+    <li><code>ts_src</code> — وقت المصدر (IBKR timestamp، microseconds).</li>
+    <li><code>ts_rx</code> — وقت الاستلام في Rust (بعد UDS receive).</li>
+    <li><code>ts_proc</code> — وقت بدء المعالجة في FastLoop.</li>
+    <li><code>symbol_id</code> — رقم داخلي ثابت (u32، لا string).</li>
+    <li><code>seq</code> — تسلسل محلي لكل رمز (u64، monotonic).</li>
+    <li><code>kind</code> — Tick | L2Delta | Snapshot | Fill | OrderStatus | Reject | Heartbeat.</li>
+  </ul>
+
+  <h3>6.2 قواعد التحقق</h3>
+  <div class="mutebox">
+    <ul>
+      <li>رفض أي حدث دون <code>symbol_id</code> معروف في Watchlist.</li>
+      <li>رفض أي حدث بـ <code>ts_src</code> أقدم من 5 ثوان (stale source).</li>
+      <li>RejectReason واحد رئيسي لكل رفض — لا قوائم مركّبة.</li>
+      <li>قياس الكمون: <code>ts_src → ts_rx → ts_proc</code> لكل حدث حرج.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §7 ════════════════════════ -->
+<section id="s7">
+  <h2>7) Tiered Watchlist + TickReady Barrier</h2>
+
+  <h3>7.1 الطبقات</h3>
+  <ul>
+    <li><b>Tier A:</b> 3–5 رموز — Tick-by-Tick دائمًا — مؤهلة للدخول.</li>
+    <li><b>Tier B:</b> 5–15 رموز — Snapshots + Warm Buffer — مرشحة للترقية.</li>
+    <li><b>Tier C:</b> بقية المرشحين — Slow Loop فقط — لا تداول مباشر.</li>
+  </ul>
+  <div class="rulebox">
+    <b>قواعد التدرج:</b>
+    <ul>
+      <li>لا دخول إلا من Tier A.</li>
+      <li>Tier C لا يرتقي مباشرة إلى A — يمر عبر B أولاً.</li>
+      <li>الترقية B→A: تتطلب TickReady + اجتياز §12.4 Guards ضد الترقية الزائفة.</li>
+    </ul>
+  </div>
+
+  <h3>7.2 IBKR Subscription Limits <span class="new-tag">⬡ v7.0</span></h3>
+  <div class="warnbox">
+    IBKR تُقيِّد عدد الـ concurrent live tick subscriptions (افتراضياً 50–100 رمز حسب نوع الحساب).
+    SlowLoop يتتبع عدد الاشتراكات الفعلية ويمنع التجاوز:
+    <ul>
+      <li>عند الاقتراب من 80% من الحد: تنبيه + وقف ترقيات جديدة.</li>
+      <li>عند الوصول للحد: خفِّض Tier B (أسقط الأقل نشاطاً) لتحرير اشتراكات.</li>
+      <li>إذا رفض IBKR اشتراك Tick: لا تكرار عدواني — أعد الرمز Tier B فوراً.</li>
+    </ul>
+  </div>
+
+  <h3>7.3 TickReady Barrier (إغلاق Race Condition)</h3>
+  <div class="mutebox">
+    <ul>
+      <li>عند قرار الترقية B→A: اصدر أمر اشتراك Tick-by-Tick عبر Python.</li>
+      <li><b>لا تعتبر الرمز Tier A حتى وصول <code>TickReady</code></b> (أول Tick-by-Tick مؤكد).</li>
+      <li>قبل TickReady: الرمز يبقى Tier B حتى لو وصل Snapshot.</li>
+      <li>هذا يمنع FastLoop من معالجة رمز كـ Tier A قبل اكتمال اشتراكه.</li>
+    </ul>
+  </div>
+
+  <h3>7.4 Pacing Limits</h3>
+  <ul>
+    <li>SlowLoop يمتلك Budget محدود للطلبات في الدقيقة (قيمة من <code>default.toml</code>).</li>
+    <li>عند الاقتراب من الحد: خفِّض Tier B أولاً قبل رفض الترقيات.</li>
+    <li>Pacing violations تُسجَّل في MetricsTask.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §8 ════════════════════════ -->
+<section id="s8">
+  <h2>8) Universe Liquidity Filter (Gate — الخطوة 4)</h2>
+
+  <h3>8.1 شروط السيولة</h3>
+  <ul>
+    <li>AvgDailyVolume ≥ <b>2,000,000</b> سهم (20 يوم).</li>
+    <li>AvgWeeklyVolume ≥ <b>5,000,000</b> سهم.</li>
+    <li>ADDV_usd ≥ <code>min_addv_usd</code> من الإعدادات (راجع §33).</li>
+  </ul>
+
+  <h3>8.2 SpreadPct الحد الأقصى — حسب نطاق السعر</h3>
+  <table>
+    <thead><tr><th>نطاق السعر</th><th>SpreadPct الحد الأقصى</th><th>ملاحظة</th></tr></thead>
+    <tbody>
+      <tr><td>&lt; 1.00$</td><td>≤ 1.5%</td><td>أسهم السنتات الخام</td></tr>
+      <tr><td>1.00 – 5.00$</td><td>≤ 0.8%</td><td>نطاق التداول الرئيسي</td></tr>
+      <tr><td>5.00 – 20.00$</td><td>≤ 0.4%</td><td>أسهم متوسطة السعر</td></tr>
+      <tr><td>20.00 – 25.00$</td><td>≤ 0.30%</td><td>الحد الأعلى للنطاق</td></tr>
+    </tbody>
+  </table>
+  <p class="small">حدود ابتدائية — لا تُخفَّف دون دليل Walk-Forward موثَّق.</p>
+</section>
+
+<!-- ════════════════════════ §8.5 ════════════════════════ -->
+<section id="s8b">
+  <h2>8.5) Corporate Actions Gate (الخطوة 2) <span class="fix-tag">★ مُستعاد</span></h2>
+  <div class="okbox">يمنع التداول على سهم يبدو جيداً تقنياً لكنه تحت قيود تنظيمية أو مؤسسية.</div>
+
+  <h3>8.5.1 الأحداث التي تُراقَب</h3>
+  <ul>
+    <li>Forward Split / Reverse Split — يُسبب تشويهاً في البيانات التاريخية.</li>
+    <li>Delisting Notice / Compliance Warning من البورصة.</li>
+    <li>Reg SHO / SSR (Short Sale Restriction) — يؤثر على السيولة والسبريد.</li>
+    <li>تحذيرات IBKR عن قيود تنفيذ أو Margin Calls على الرمز.</li>
+  </ul>
+
+  <h3>8.5.2 التصنيف والإجراء</h3>
+  <table>
+    <thead><tr><th>التصنيف</th><th>الإجراء</th><th>مثال</th></tr></thead>
+    <tbody>
+      <tr><td><b class="badge-ok">Allowed</b></td><td>تداول طبيعي — لا قيود</td><td>لا أحداث</td></tr>
+      <tr><td><b class="badge-warn">Watch</b></td><td>تداول مع تشديد Guards (Spread threshold بنسبة 50%)</td><td>SSR فعّال</td></tr>
+      <tr><td><b class="badge-danger">Block</b></td><td>رفض فوري — Veto قاطع — يُضاف تلقائياً للـ Blocklist</td><td>Delisting / Compliance</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ════════════════════════ §8.75 ════════════════════════ -->
+<section id="s8c">
+  <h2>8.75) Price Range Gate (الخطوة 3) <span class="fix-tag">★ مدمجة</span></h2>
+  <div class="okbox">
+    Gate صريح لاستهداف مناطق سعرية محددة. موقعه: بعد Blocklist وCorporate Actions، قبل Universe/Regime.
+    يعكس نية المشغّل (Operator Intent) لا منطق السوق.
+  </div>
+
+  <h3>8.75.1 القيم الافتراضية والحدود</h3>
+  <table>
+    <thead><tr><th>المفتاح</th><th>الافتراضي</th><th>أدنى</th><th>أقصى</th><th>متى يُسمح بالتعديل</th></tr></thead>
+    <tbody>
+      <tr><td><span class="cfg-key">target_price_min</span></td><td>0.30$</td><td>0.30$</td><td>24.99$</td><td>قبل الجلسة فقط</td></tr>
+      <tr><td><span class="cfg-key">target_price_max</span></td><td>25.00$</td><td>0.31$</td><td>25.00$</td><td>قبل الجلسة فقط</td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.75.2 قاعدة الرفض</h3>
+  <div class="rulebox">
+    القياس دائماً بـ <b>Last Price.</b>
+    إذا <code>LastPrice &lt; target_price_min</code> أو <code>LastPrice &gt; target_price_max</code> → رفض فوري.
+    RejectReason = <code>PRICE_RANGE</code>.
+  </div>
+</section>
+
+<!-- ════════════════════════ §9 ════════════════════════ -->
+<section id="s9">
+  <h2>9) Daily Context Filter (الخطوة 6) <span class="fix-tag">★ تعريف كمي مُضاف</span></h2>
+  <div class="rulebox">
+    <b class="badge-danger">Gate إلزامي:</b> فشل أي شرط = رفض فوري حتى لو كانت السيولة التاريخية ممتازة.
+  </div>
+
+  <h3>9.1 الشروط الكمية (كلها يجب أن تنطبق)</h3>
+  <ul>
+    <li><b>Volume_today ≥ 2× AvgVolume_20D.</b> يُقاس كل 30 دقيقة في SlowLoop.</li>
+    <li><b>اتساق السعر والحجم:</b> ارتفاع السعر يجب أن يُرافقه ارتفاع الحجم (لا ارتفاع على حجم هابط).</li>
+    <li><b>رفض Churning:</b> High–Low &lt; 1% دون تقدم للأعلى خلال 10 دقائق → Churning → رفض.</li>
+  </ul>
+
+  <h3>9.2 محفز اليوم — تعريف كمي قابل للبرمجة <span class="new-tag">⬡ v7.0</span></h3>
+  <div class="mutebox">
+    <b>المحفز موجود</b> إذا تحقق <b>Volume_today &gt; 2× AvgVolume_20D</b> مع أي قرينة من الثلاث التالية:
+    <ul>
+      <li><b>Volume Surge:</b> Volume_today &gt; 3× AvgVolume_20D في أول ساعتين = محفز قوي (يكفي وحده).</li>
+      <li><b>News Event:</b> حدث IBKR من نوع <code>NewsEvent</code> للرمز في الجلسة الحالية.</li>
+      <li><b>Sector Momentum:</b> ETF الممثِّل للقطاع تحرك بـ ≥ 2% في الساعة السابقة.</li>
+    </ul>
+    <b>Volume بين 2× و3× بدون أي من القرائن الثلاث → Context = UNDETERMINED → رفض.</b>
+    RejectReason = <code>DAILY_CONTEXT</code>.
+  </div>
+  <p class="small">يُميّز بين سهم "نشط اليوم" وسهم "تاريخه نشط". الثاني لا يُتداوَل.</p>
+</section>
+
+<!-- ════════════════════════ §10 ════════════════════════ -->
+<section id="s10">
+  <h2>10) MTF Context Analysis (الخطوة 7) <span class="fix-tag">★ تعريفات كمية</span></h2>
+  <div class="rulebox">
+    <b class="badge-danger">Gate إلزامي:</b> تعارض قوي مع اتجاه أعلى = Veto قاطع. (RejectReason: <code>MTF_VETO</code>)
+  </div>
+
+  <h3>10.1 الإطار الأسبوعي</h3>
+  <ul>
+    <li>Close الأسبوع الحالي &gt; EMA(10 أسابيع) → اتجاه صاعد = مسموح.</li>
+    <li>Close &lt; EMA(10w) بأكثر من 3% → Veto.</li>
+  </ul>
+
+  <h3>10.2 الإطار اليومي</h3>
+  <ul>
+    <li><b>مقاومة قريبة:</b> مستوى شُكِّل بـ ≥ 2 لمسة خلال آخر 20 يوم، يبعد &lt; 2% → Veto.
+      اللمسة: High أو Low يومي يُلامس المستوى ± 0.5%.</li>
+    <li><b>Momentum slope:</b> EMA(9d) &lt; EMA(21d) بأكثر من 2% → Veto.</li>
+  </ul>
+
+  <h3>10.3 الإطار 4H</h3>
+  <ul>
+    <li>انحدار مستمر: 3 كابدلات 4H متتالية هابطة مع دخول = Veto.</li>
+    <li>Close آخر كابدل 4H &gt; Close قبله = موجب أو محايد = مقبول.</li>
+  </ul>
+
+  <h3>10.4 الإطار 15 دقيقة</h3>
+  <ul>
+    <li>Pullback قبل الدخول: تراجع 1–3 شمعات من القمة مع انخفاض حجم ثم عودة بحجم متصاعد = مقبول.</li>
+    <li>Breakout مباشر بدون تصحيح: مقبول فقط إذا Volume_15m &gt; 1.5× AvgVolume_15m.</li>
+  </ul>
+
+  <h3>10.5 ملاحظة تنفيذية</h3>
+  <div class="warnbox">
+    كل هذه المعايير تُحسب في <b>SlowLoop</b> وتُخزَّن كـ Boolean واحد (<code>mtf_pass</code>) في WatchlistSnapshot.
+    FastLoop يقرأ الـ Boolean فقط — لا يُعيد الحساب أبداً.
+  </div>
+
+  <h3>10.6 تحفظ تطبيقي على أسهم السنتات <span class="new-tag">⬡ v7.0</span></h3>
+  <div class="warnbox">
+    أسهم السنتات قد تتحرك 200%+ في يومين. EMAs الأسبوعية قد لا تعكس بنية موثوقة.
+    يُنصح بمراجعة نسبة Reject هذه Gate عبر Walk-Forward §26.3 لتقييم قدرتها التمييزية الفعلية.
+    إذا تجاوزت نسبة رفض MTF 60% من إجمالي Rejects لأسبوعين متتاليين → مراجعة يدوية للمعايير.
+  </div>
+</section>
+
+<!-- ════════════════════════ §11 ════════════════════════ -->
+<section id="s11">
+  <h2>11) Regime Gate (الخطوة 5)</h2>
+  <table>
+    <thead><tr><th>الحالة</th><th>الشروط (كلها)</th><th>الأثر على التداول</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b class="badge-ok">Normal</b></td>
+        <td>ATR(SPY 1m) ≤ 0.18% <br>AND Widening ≤ +25% <br>AND Breadth ≥ 45% <br>AND Calendar = OFF <br>AND DataQuality = OK</td>
+        <td>يسمح بالدخول</td>
+      </tr>
+      <tr>
+        <td><b class="badge-warn">Caution</b></td>
+        <td>ATR 0.18–0.28% <br>أو Widening +25–+50% <br>أو Breadth 35–45% <br>أو Calendar = ON</td>
+        <td>منع صفقات جديدة<br>Tighten Trailing Stop 25%</td>
+      </tr>
+      <tr>
+        <td><b class="badge-danger">Risk-Off</b></td>
+        <td>ATR ≥ 0.28% <br>أو Widening ≥ +50% <br>أو Breadth ≤ 35% <br>أو DataQuality = degraded</td>
+        <td>Monitor Only</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>11.1 Calendar Risk</h3>
+  <ul>
+    <li>قبل حدث عالي الأثر (CPI / FOMC / NFP / OPEC) بـ <b>60 دقيقة:</b> Calendar = ON.</li>
+    <li>بعد الحدث بـ <b>30 دقيقة:</b> Calendar = ON.</li>
+    <li>المصدر الأساسي: API آلي. Fallback: <code>configs/calendar.toml</code> (راجع §27).</li>
+  </ul>
+
+  <h3>11.2 Regime Change أثناء صفقة مفتوحة</h3>
+  <div class="mutebox">
+    <ul>
+      <li><b>Normal → Caution:</b> امنع صفقات جديدة. شدّد Trailing Stop بنسبة 25%.</li>
+      <li><b>أي حالة → Risk-Off:</b>
+        <ul>
+          <li>PnL موجب: خروج Marketable Limit
+
+<pre>
+ExitPrice = max(
+    0.01,
+    Bid - 0.25 * ATR_1m,
+    Bid - 2 * TickSize
+)
+</pre>
+ فوراً.</li>
+          <li>PnL سالب: دع Server-side Stop يعمل. لا تتدخل يدوياً.</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §12 ════════════════════════ -->
+<section id="s12">
+  <h2>12) Cold Start Solution</h2>
+
+  <h3>12.1 المشكلة</h3>
+  <p>ترقية رمز من Tier B إلى A تُغيِّب نافذة <code>Trades_prev20s</code> اللازمة لحساب Acceleration.
+  هدف الحل: منع قيم NaN/0 ومنع تفويت بداية الانفجار.</p>
+
+  <h3>12.2 State Machine + Warm Buffer</h3>
+  <div class="mutebox">
+    <ul>
+      <li>States: <code>COLD_START</code> → <code>WARM_ACTIVE</code> → <code>FULL_ACTIVE</code>.</li>
+      <li>SlowLoop يُخزِّن: <code>snap_trade_count_20s</code>، <code>snap_volume_20s</code>، <code>snap_spread_20s</code>.</li>
+      <li>في WARM_ACTIVE: <code>A_est = (last10s/10) ÷ max(snap_count/20, ε)</code> حيث <code>ε = 1e-6</code> لمنع القسمة على صفر.</li>
+      <li>وزن Acceleration في TapeScore أثناء WARM_ACTIVE = 50% من وزنه الكامل (wA_warm = 0.11).</li>
+      <li>بعد 20 ثانية من Tick حقيقي: → <code>FULL_ACTIVE</code> مع الأوزان الكاملة.</li>
+    </ul>
+  </div>
+
+  <h3>12.3 Surge Override (محكوم بشروط صارمة)</h3>
+  <div class="warnbox">
+    دخول في WARM_ACTIVE فقط إذا اجتمعت كلها:
+    <code>R ≥ 2.5</code> + LargePrint موجود + Spread stable + <code>RunUp ≤ 3%</code>.
+    RunUp = ارتفاع السعر منذ بدء snap — يمنع مطاردة حركة منتهية.
+  </div>
+
+  <h3>12.4 Guards ضد الترقية الزائفة</h3>
+  <ul>
+    <li>لا ترقِ إلى Tier A إذا <code>snap_trade_count_20s</code> &lt; حد أدنى (من الإعدادات).</li>
+    <li>لا ترقِ إذا <code>snap_spread_20s</code> فوق حد Universe Spread من §8.2.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §13 ════════════════════════ -->
+<section id="s13">
+  <h2>13) Tape Engine + Ring Buffers <span class="fix-tag">★ Absorption + BLS مُستعادان</span></h2>
+
+  <h3>13.1 مواصفات Ring Buffer</h3>
+  <div class="mutebox">
+    <ul>
+      <li>Ring Buffer <b>زمني</b> — نافذة W = 30 ثانية لكل رمز في Tier A.</li>
+      <li>حد أقصى: <b>2000 عنصر</b> لكل رمز — تُخصَّص مرة واحدة عند الإقلاع.</li>
+      <li>عند الفيضان: إسقاط الأقدم (FIFO).</li>
+      <li>كل عنصر يحمل timestamp بدقة microsecond لحساب نوافذ 10s/20s.</li>
+    </ul>
+  </div>
+
+  <h3>13.2 مقاييس Tape — الحسابات الكمية</h3>
+
+  <h4>① Aggressive Ratio (R)</h4>
+  <pre><code>price ≥ ask  → Aggressive Buy  → V_buy  += volume
+price ≤ bid  → Aggressive Sell → V_sell += volume
+غير ذلك    → Neutral         → مُهمَل
+
+R = (V_buy + 1) / (V_sell + 1)   # نافذة W = 30s
+# R = 1.0 → توازن
+# R > 1.5 → ضغط شراء
+# R > 2.5 → ضغط قوي</code></pre>
+
+  <h4>② Acceleration (A)</h4>
+  <pre><code>A = (Trades_last10s / 10) / (Trades_prev20s / 20)
+# A > 1.0 → تسارع
+# A > 1.6 → نشاط حقيقي (FULL_ACTIVE)
+# A > 1.9 → نشاط قوي (WARM_ACTIVE)</code></pre>
+
+  <h4>③ Large Print (LP)</h4>
+  <pre><code>LargePrint = TradeSizeUSD >= LargePrintThreshold
+
+LargePrintCount_30s = count(LargePrint, 30s)
+ True إذا صفقة حجمها ≥ max(P95_window, 4 × AvgTradeSize)
+# P95 يُحسب على صفقات نافذة W الحالية</code></pre>
+
+  <h4>④ Absorption <span class="fix-tag">★ مُستعاد</span></h4>
+  <pre><code>Absorption = True إذا:
+  1. السعر ثابت قرب Ask (± max(0.5¢, 0.15% × Price)) لمدة ≥ 5s
+  2. مع استمرار Aggressive Buys (V_buy > 0 كل ثانية)
+  3. ثم ارتفاع السعر ≥ 1 tick خلال ثانيتين
+
+ScoreAbsorption = 1.0 إذا تحققت جميع الشروط، 0.0 غير ذلك.
+ملاحظة: الحد الأدنى ± max(0.5¢, 0.15% × Price) مُكيَّف مع السعر.
+مثال: سعر 1$  → ± 1.5¢ | سعر 5$ → ± 7.5¢ | سعر 10$ → ± 1.5¢ (0.15%)</code></pre>
+
+  <h4>⑤ Bid Lifting Sequence (BLS) <span class="fix-tag">★ مُستعاد</span></h4>
+  <pre><code>BLS = True إذا:
+  ≥ 3 تحديثات NBBO متتالية ترفع الـ bid
+  خلال نافذة 3–8 ثوان
+  مع كل تحديث يرفع bid بـ ≥ 1¢
+
+ScoreBidLift = 1.0 إذا تحققت، 0.0 غير ذلك.</code></pre>
+
+  <h3>13.3 دوال التطبيع (Normalization → 0 إلى 100)</h3>
+  <pre><code>ScoreR    = clamp((R - 1.0) / 2.0 * 100,  0, 100)
+ScoreA    = clamp((A - 1.0) / 1.5 * 100,  0, 100)
+ScoreLP   = min(LargePrintCount_30s * 25,   100)
+ScoreSpread = clamp((SpreadLimit - SpreadPct) / SpreadLimit * 100, 0, 100)
+              # أقصى إذا Spread = 0، صفر إذا عند الحد
+ScoreAbs  = Absorption * 100.0
+ScoreBLS  = BLS    * 100.0</code></pre>
+
+  <h3>13.4 Veto إضافي للـ Tape</h3>
+  <div class="rulebox">
+    انعكاس مفاجئ: <code>R &lt; 0.7</code> مع توسع سبريد خلال 5 ثوان → رفض دخول مباشر.
+    RejectReason = <code>TAPE_REVERSAL</code>.
+  </div>
+
+  <h3>13.5 قواعد الأداء — O(1) مطلق</h3>
+  <div class="rulebox">
+    <ul>
+      <li>Ring Buffers ثابتة — تحديث counters بـ O(1) عبر head/tail pointers.</li>
+      <li>لا بحث خطي داخل FastLoop — لا loops فوق البيانات.</li>
+      <li>لا allocations بعد الإقلاع.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §14 ════════════════════════ -->
+<section id="s14">
+  <h2>14) Microstructure Guards + TTL (الخطوة 9)</h2>
+
+  <h3>14.1 Guards الستة — تعريفات كمية كاملة</h3>
+  <table>
+    <thead><tr><th>Guard</th><th>المقياس</th><th>عتبة الرفض</th><th>TTL</th><th>RejectReason</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>Spread Guard</b></td>
+        <td>SpreadPct = (Ask−Bid)/Mid</td>
+        <td>تجاوز حد §8.2 حسب السعر</td>
+        <td>3s</td>
+        <td><code>GUARD_SPREAD</code></td>
+      </tr>
+      <tr>
+        <td><b>Imbalance Guard</b></td>
+        <td>BidQty/(BidQty+AskQty)</td>
+        <td>&lt; 0.30 → AskQty &gt; 2.3× BidQty</td>
+        <td>1s</td>
+        <td><code>GUARD_IMBALANCE</code></td>
+      </tr>
+      <tr>
+        <td><b>Stale Quote</b></td>
+        <td>NBBO ثابت مع وجود trades</td>
+        <td>NBBO ثابت ≥ 500ms أثناء صفقات نشطة</td>
+        <td>5s</td>
+        <td><code>GUARD_STALE</code></td>
+      </tr>
+      <tr>
+        <td><b>Slippage Gate</b></td>
+        <td>ExpectedSlippage / HalfSpread</td>
+        <td>تضاعف الانزلاق المتوقع عن الأساس</td>
+        <td>2s</td>
+        <td><code>GUARD_SLIPPAGE</code></td>
+      </tr>
+      <tr>
+        <td><b>L2 Vacuum</b></td>
+        <td>AvgDepthTop3 / Baseline</td>
+        <td>&lt; 20% من baseline لمدة &gt; 500ms</td>
+        <td>2s</td>
+        <td><code>GUARD_L2_VACUUM</code></td>
+      </tr>
+      <tr>
+        <td><b>Quote Flicker</b></td>
+        <td>تغييرات NBBO/ثانية</td>
+        <td>&gt; 15 تغيير/ثانية</td>
+        <td>1s</td>
+        <td><code>GUARD_FLICKER</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="mutebox">
+    <b>Sweep/Trap (تحذير فقط — لا يمنع وحده):</b>
+    LargePrint عند Ask + انعكاس خلال 30s → CautionFlag = true.
+    يُسجَّل في DecisionLog ويُؤثر على Sweep/Trap Counter لأغراض التحليل فقط.
+  </div>
+
+  <h3>14.2 L2 Vacuum Baseline</h3>
+  <div class="mutebox">
+    Baseline يُحسب في SlowLoop: متوسط AvgDepthTop3 خلال آخر 5 دقائق.
+    يُخزَّن في WatchlistSnapshot. FastLoop يقرأ فقط.
+  </div>
+
+  <h3>14.3 TTL (Hysteresis)</h3>
+  <p>TTL = مدة بقاء Guard في FAIL بعد اختفاء السبب. يمنع Oscillation السريع الذي يُشوِّش DecisionLog.</p>
+
+  <h3>14.4 Stale → DataQuality</h3>
+  <div class="mutebox">
+    Stale Quote: NBBO ثابت ≥ 500ms مع trades نشطة → <code>DataQuality = suspect</code> → Monitor Only + تسجيل.
+  </div>
+
+  <h3>14.5 قاعدة التصميم الموحَّدة</h3>
+  <div class="okbox">
+    لكل Guard: Threshold واحد + TTL واحد + RejectReason واحد. لا Guard بدون تعريف كمي قابل للبرمجة.
+  </div>
+</section>
+
+<!-- ════════════════════════ §15 ════════════════════════ -->
+<section id="s15">
+  <h2>15) Entry Trigger + Anti-Chase <span class="fix-tag">✦ يتبع §2.1 حرفياً</span></h2>
+
+  <h3>15.1 شروط الدخول الكاملة (12 خطوة — تتطابق §2.1)</h3>
+  <div class="rulebox">
+    <ol>
+      <li>Symbol ليس في Blocklist. <span class="small">[§2.1 → 1]</span></li>
+      <li>Corporate Gate = Allowed أو Watch. <span class="small">[§2.1 → 2]</span></li>
+      <li><code>target_price_min ≤ LastPrice ≤ target_price_max</code>. <span class="small">[§2.1 → 3]</span></li>
+      <li>Universe Gate = PASS (Volume + Spread). <span class="small">[§2.1 → 4]</span></li>
+      <li>Regime = Normal + Tier A + TickReady = true + DataQuality = OK. <span class="small">[§2.1 → 5]</span></li>
+      <li>Daily Context = PASS. <span class="small">[§2.1 → 6]</span></li>
+      <li>MTF Context = PASS (mtf_pass = true). <span class="small">[§2.1 → 7]</span></li>
+      <li><code>RunUpFromSignal &lt; 2.0%</code>. <span class="small">[§2.1 → 8]</span></li>
+      <li>كل Guards = PASS. <span class="small">[§2.1 → 9]</span></li>
+      <li>TapeScore ≥ عتبة الدخول. <span class="small">[§2.1 → 10]</span></li>
+      <li><code>ExpectedNet &gt; 0</code>. <span class="small">[§2.1 → 11]</span></li>
+      <li>Exposure/Correlation = PASS. <span class="small">[§2.1 → 12]</span></li>
+    </ol>
+  </div>
+
+  <h3>15.2 Anti-Chase Vetoes الإضافية</h3>
+  <div class="mutebox">
+    <ul>
+      <li><code>RunUpFromSignal ≥ 2.0%</code> → Veto (RejectReason: <code>ANTI_CHASE</code>).</li>
+      <li>SpreadPct تجاوز الحد لحظياً بين حساب TapeScore وإرسال الأمر → Veto.</li>
+      <li>ExpectedSlippage تضاعف بين التقييم والإرسال → Veto.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §16 ════════════════════════ -->
+<section id="s16">
+  <h2>16) Position Sizing + Stops <span class="fix-tag">★ MinStopDistance متعدد العوامل</span></h2>
+
+  <h3>16.1 StopDistance — الأولوية صريحة</h3>
+  <div class="rulebox">
+    <pre><code>Stop_Guards = max(2 * TickSize, 0.25 * (Ask - Bid))
+Stop_ATR     = ATR(1m) × k_atr        # k_atr = 2.0 (ابتدائي، راجع §33)
+
+StopDistance = max(Stop_Guards, Stop_ATR)
+
+# حد أدنى إلزامي (MinStopDistance) — يمنع Position Sizes شاذة:
+MinStopDistance = max(0.02$, 1.2% × Price, 0.8 × ATR_1m)
+StopDistance    = max(StopDistance, MinStopDistance)
+
+# ملاحظة: MinStopDistance مُكيَّف مع التقلب (ATR) والسعر معاً.</code></pre>
+  </div>
+
+  <h3>16.2 حساب الحجم</h3>
+  <pre><code>RiskPerTradeUSD    = 25$  (ثابت قابل للضبط، راجع §33)
+SharesRaw          = RiskPerTradeUSD / StopDistance
+SharesCapLiquidity = (ADDV_usd × 0.1%) / Price
+BudgetCap          = SettledCash × 20%
+MaxPositionValue   = AccountEquity × 15%   # Hard Reject إذا تجاوز
+
+Shares = min(SharesRaw, SharesCapLiquidity, BudgetCap)
+# التحقق الأخير: Shares × Price ≤ MaxPositionValue</code></pre>
+
+  <h3>16.3 تعديل الحجم بعد الهدف اليومي</h3>
+  <ul>
+    <li>بعد تحقيق الهدف اليومي: <code>Shares *= 0.50</code>.</li>
+    <li>بعد تحقيق 10% ربح يومي إجمالي: <code>Shares *= 0.25</code>.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §17 ════════════════════════ -->
+<section id="s17">
+  <h2>17) Exposure + Correlation (الخطوة 12)</h2>
+  <ul>
+    <li>MaxOpenPositions = <b>1</b> (افتراضي).</li>
+    <li>يُسمح بـ 2 فقط إذا: Regime = Normal مستقر + Correlation منخفض + لا تركز قطاعي.</li>
+    <li>إذا نفس القطاع (SIC/GICS): MaxOpenPositions = 1 بصرف النظر.</li>
+  </ul>
+
+  <h3>17.1 Correlation Guard — التنفيذ الكامل</h3>
+  <div class="mutebox">
+    <ul>
+      <li>يُحسب Pearson(20d daily returns) في <b>SlowLoop</b> — خارج FastLoop.</li>
+      <li>عند وجود مركز مفتوح: SlowLoop يحسب Correlation بين الرمز المفتوح وكل مرشح Tier A ويخزن في <code>watchlist_snapshot.corr_to_open</code>.</li>
+      <li>إعادة الحساب: مرة واحدة عند تغيّر الرمز المفتوح، ثم إعادة استخدام حتى التغيير التالي.</li>
+      <li>FastLoop يقرأ قيمة جاهزة فقط: إذا <code>corr_to_open ≥ 0.40</code> → رفض المركز الثاني.</li>
+    </ul>
+  </div>
+  <p class="small">Threshold = 0.40 اختير كحد محافظ مناسب لـ Penny Stocks ذات تباين عالٍ. (راجع §32 Rationale)</p>
+</section>
+
+<!-- ════════════════════════ §18 ════════════════════════ -->
+<section id="s18">
+  <h2>18) Fees + Slippage + ExpectedNet (الخطوة 11)</h2>
+
+  <div class="mutebox">
+    <b>توضيح Gross — بدون لبس:</b>
+    <ul>
+      <li><code>TargetPriceMove = EntryPrice × 0.10</code></li>
+      <li><code>TargetProfit_10pct = TargetPriceMove × Shares</code></li>
+      <li><code>Gross = min(50.0$, TargetProfit_10pct)</code></li>
+      <li>ExpectedNet يُحسب على <b>الكمية الكاملة.</b> البيع الجزئي 50% يخص إدارة الصفقة فقط (§19.4).</li>
+    </ul>
+  </div>
+
+  <h3>18.1 معادلة الرسوم</h3>
+  <pre><code>Commission = 0.005$ × shares                      # IBKR per-share
+SEC_fee    = 0.0000278 × (sell_price × shares)    # معدل 2025 — يتغير سنوياً
+TAF        = 0.000166 × shares                    # مع سقف تنظيمي
+Routing    = 0$ (IBKR Smart) أو من الإعدادات
+
+TotalFees  = Commission + SEC_fee + TAF + Routing</code></pre>
+  <p class="small">معدل SEC_fee يتغير سنوياً — تحقق من <code>default.toml</code> كل يناير.</p>
+
+  <h3>18.2 نموذج الانزلاق</h3>
+  <pre><code>ImpactSlippage   = β × (Shares / AvgDepthTop3)
+SlippagePerShare = max(Spread/2, α × Vol_1m × Price, ImpactSlippage)
+ExpectedSlippage = SlippagePerShare × shares
+
+# قيم ابتدائية: α = 0.5، β = 0.3
+# تُعاير عبر Live Micro Testing §26.4</code></pre>
+
+  <h3>18.3 شرط القبول — Veto قاطع</h3>
+  <pre><code>ExpectedNet = Gross - TotalFees - ExpectedSlippage</code></pre>
+  <div class="rulebox"><b>ExpectedNet ≤ 0 → رفض فوري.</b> RejectReason = <code>NET_NEGATIVE</code>.</div>
+</section>
+
+<!-- ════════════════════════ §19 ════════════════════════ -->
+<section id="s19">
+  <h2>19) Execution Engine + OMS</h2>
+
+  <h3>19.1 أنواع الأوامر</h3>
+  <ul>
+    <li>Bracket Orders + OCO (One-Cancels-Other).</li>
+    <li>Server-side Stops — يُرسَل مع أمر الدخول قبل إغلاق OMS.</li>
+    <li>Trailing Stop ديناميكي بعد تحقيق الهدف الأول.</li>
+  </ul>
+
+  <h3>19.2 Partial Fills</h3>
+  <div class="mutebox">
+    <ul>
+      <li>تتبع <code>filled_qty</code> و<code>avg_fill_price</code> في الوقت الحقيقي.</li>
+      <li>لا إعادة إرسال دون idempotency key فريد (UUID أو timestamp + symbol_id).</li>
+      <li>Repricing: حد أقصى <b>3 تعديلات</b>، فاصل <b>250ms.</b> بعد الحد: Cancel + Veto.</li>
+    </ul>
+  </div>
+
+  <h3>19.3 Fill Confirmation Timeout</h3>
+  <div class="mutebox">
+    <ul>
+      <li>Timeout = <b>2 ثانية</b> بعد إرسال الأمر.</li>
+      <li>عند التجاوز: Query order status فوراً.</li>
+      <li>إذا لم يتأكد خلال <b>5 ثوان</b> → <code>INVESTIGATE</code> + منع أوامر جديدة للرمز + تنبيه.</li>
+    </ul>
+  </div>
+
+  <h3>19.4 إدارة الصفقة بعد الدخول</h3>
+  <ul>
+    <li>عند تحقيق 50$ Gross أو 10% تحرك سعري: بيع 50% (Partial Exit — Bid-based Realized PnL).</li>
+    <li>الباقي: رفع Stop إلى Breakeven + Trailing Stop ديناميكي.</li>
+    <li>عند Tape Reversal (R &lt; 0.7) أو Spread Widening مفاجئ: تشديد Stop أو خروج فوري.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §20 ════════════════════════ -->
+<section id="s20">
+  <h2>20) Risk Engine + Kill Switch</h2>
+
+  <h3>20.1 Loss Ladder</h3>
+  <ul>
+    <li>خسارة 1 في اليوم: Pause <b>15 دقيقة.</b></li>
+    <li>خسارة 2 في اليوم: Pause <b>1 ساعة.</b></li>
+    <li>خسارة 3 أو <code>PnLDay ≤ −100$</code>: Monitor Only حتى بداية الجلسة التالية.</li>
+  </ul>
+
+  <h3>20.2 أولويات Kill Switch (مرتبة تنازلياً)</h3>
+  <ol>
+    <li>MaxDailyLossUSD = −100$</li>
+    <li>Data/API failure (DataQuality = degraded &gt; 30s)</li>
+    <li>Loss Ladder (3 خسارات)</li>
+    <li>SLA breach مستمر (&gt; 25ms لمدة &gt; 5s)</li>
+    <li>Correlation breach (مركزان متشابهان)</li>
+  </ol>
+
+  <h3>20.3 LULD / Halt Policy <span class="fix-tag">✦ سياسة موحَّدة نهائية</span></h3>
+  <div class="mutebox">
+    <b>السياسة Symbol-specific — Halt على رمز لا يوقف تداول باقي الرموز.</b>
+    <ul>
+      <li><b>إذا يوجد مركز مفتوح:</b> ننتظر حتى 5 دقائق. إذا استمر الـ Halt &gt; 5 دقائق → <code>EMERGENCY_EXIT</code> فور الاستئناف (Marketable Limit
+
+<pre>
+ExitPrice = max(
+    0.01,
+    Bid - 0.25 * ATR_1m,
+    Bid - 2 * TickSize
+)
+</pre>
+ — لا تعتمد على Stop كسعر مضمون).</li>
+      <li><b>دخول جديد بعد أي Halt/LULD:</b> تعطيل الرمز فوراً لبقية الجلسة. (<code>DISABLE_SYMBOL_REMAINDER_SESSION</code>)</li>
+      <li><b>Gap بعد الاستئناف:</b> إذا <code>ResumePrice &lt; PreHaltMark × 0.92</code> → تأكيد التعطيل + تسجيل <code>GAP_AFTER_HALT_DISABLE</code>.</li>
+    </ul>
+  </div>
+
+  <h3>20.4 Gap Risk Protection</h3>
+  <div class="mutebox">
+    <ul>
+      <li><b>Open Gap Filter:</b> إذا <code>OpenPrice &lt; PrevClose × 0.92</code> → Monitor Only للرمز لمدة <b>15 دقيقة.</b> تسجيل <code>GAP_OPEN_FILTER</code>. مراكز قائمة تُدار بقواعد الخروج كما هي.</li>
+      <li>Gap filters تطبق على مستوى الرمز فقط — لا تأثير على باقي الرموز.</li>
+    </ul>
+  </div>
+
+  <h3>20.5 تفاعل قواعد الخسارة مع المراكز المتزامنة</h3>
+  <div class="mutebox">
+    <ol>
+      <li>MaxDailyLoss يُحتسب كمجموع صافٍ لجميع المراكز — يسبق كل شيء.</li>
+      <li>كل خسارة رمز مستقلة تُحتسب في Loss Ladder بشكل مستقل.</li>
+      <li>مجموع الخسائر اليومية يُقاس مقابل MaxDailyLossUSD.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ════════════════════════ §21 ════════════════════════ -->
+<section id="s21">
+  <h2>21) T+1 Settlement + PDT Rule <span class="new-tag">⬡ PDT مُضاف في v7.0</span></h2>
+
+  <h3>21.1 قواعد التسوية</h3>
+  <ul>
+    <li>التداول فقط من <b>Settled Cash.</b></li>
+    <li>منع Good Faith Violations تلقائياً — لا شراء بأموال غير مستقرة.</li>
+    <li>تتبع Settled/Unsettled Cash بعد كل صفقة.</li>
+    <li>أي منع بسبب Settlement يُسجَّل في DecisionLog مع السبب.</li>
+  </ul>
+
+  <h3>21.2 Pattern Day Trader (PDT) Rule <span class="new-tag">⬡ v7.0</span></h3>
+  <div class="warnbox">
+    <b>Cash Account يخضع لقاعدة الـ Settlement وليس PDT بالمعنى التقني</b> (PDT يُطبَّق على Margin Accounts).
+    لكن يجب مراقبة:
+    <ul>
+      <li>عدد الصفقات اليومية لا يتجاوز ما يُتيحه Settled Cash.</li>
+      <li>إذا تجاوز الحساب 25,000$ وتحوَّل إلى Margin: يجب مراجعة قواعد PDT فوراً ومنع التداول حتى التحقق.</li>
+      <li>النظام يُسجِّل عدد الصفقات اليومية ويُنبِّه عند الاقتراب من حدود بيئة الحساب.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §22 ════════════════════════ -->
+<section id="s22">
+  <h2>22) Latency SLA <span class="fix-tag">✦ توضيح نهائي — مُصالَح</span></h2>
+  <table>
+    <thead><tr><th>المقياس</th><th>الهدف / الحد</th><th>الإجراء عند الخرق</th></tr></thead>
+    <tbody>
+      <tr><td><b>Internal Engine — Target</b></td><td>≤ 10ms</td><td>تسجيل تحذير في MetricsTask</td></tr>
+      <tr><td><b>Internal Engine — Hard Fail</b></td><td>&gt; 25ms مستمر (&gt;5s)</td><td>Monitor Only + تنبيه</td></tr>
+      <tr><td><b>End-to-End — Hard Max</b></td><td>≤ 100ms (Tick → Order sent)</td><td>Monitor Only + تسجيل</td></tr>
+      <tr><td><b>Broker Roundtrip</b></td><td>مُراقَب فقط</td><td>لا Hard Fail (خارج تحكم النظام)</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>MetricsTask يراقب P95 لكل مسار باستمرار.</li>
+    <li>احتفظ بآخر 1000 حدث قبل الانتهاك للتشخيص اللاحق.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §23 ════════════════════════ -->
+<section id="s23">
+  <h2>23) Reconnect Protocol</h2>
+  <div class="rulebox">
+    <b>الترتيب إلزامي — لا تخطَّ خطوة:</b>
+    <ol>
+      <li>Reload Open Orders + Positions من IBKR (IBKR truth).</li>
+      <li>Verify Stop/OCO موجود لكل مركز مفتوح.</li>
+      <li>إذا Stop غير موجود: أرسل حماية فورية (Marketable Limit
+
+<pre>
+ExitPrice = max(
+    0.01,
+    Bid - 0.25 * ATR_1m,
+    Bid - 2 * TickSize
+)
+</pre>
+ أو Market Stop) قبل أي شيء آخر.</li>
+      <li>Rebuild State Machine من IBKR truth — لا من الذاكرة المحلية.</li>
+      <li>No new orders حتى اكتمال خطوات 1–4.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ════════════════════════ §24 ════════════════════════ -->
+<section id="s24">
+  <h2>24) Observability</h2>
+
+  <h3>24.1 DecisionLog (لكل قرار — قبول أو رفض)</h3>
+  <ul>
+    <li>Inputs: R، A، LP، SpreadScore، TapeScore، TapeScore_threshold.</li>
+    <li>Gate results (Boolean): Blocklist، Corporate، PriceRange، Universe، Regime، Daily، MTF، AntiChase، Guards.</li>
+    <li>ExpectedNet، Gross، TotalFees، ExpectedSlippage.</li>
+    <li>RejectReason الرئيسي (واحد فقط) + حتى 3 أسباب ثانوية.</li>
+    <li>Latencies: ts_src، ts_rx، ts_proc، ts_decision.</li>
+    <li>ColdStartState: COLD/WARM/FULL.</li>
+  </ul>
+
+  <h3>24.2 TradeJournal (لكل صفقة مُنفَّذة)</h3>
+  <ul>
+    <li>Snapshot الدخول الكامل (جميع حقول DecisionLog لحظة الدخول).</li>
+    <li>Fill timeline كامل + avg_fill_price + fill_count.</li>
+    <li>Slippage متوقع vs فعلي (للمعايرة في §26.4).</li>
+    <li>سبب الخروج: Target / Stop / Manual / LULD / Regime Change / Tape Reversal.</li>
+    <li>PnL مفصَّل: Gross / Fees / Slippage / Net.</li>
+    <li>Loss Attribution Code (§24.6).</li>
+  </ul>
+
+  <h3>24.3 Metrics (تشغيلية لحظية)</h3>
+  <ul>
+    <li>Tick processing time: avg / P95 / P99.</li>
+    <li>Reject rates بحسب كل RejectReason (نسبة مئوية).</li>
+    <li>Win rate بحسب Regime.</li>
+    <li>API errors + reconnect count.</li>
+    <li>DataQuality events count + duration.</li>
+    <li>IBKR Subscription count vs limit.</li>
+  </ul>
+
+  <h3>24.4 Alerts (فورية)</h3>
+  <ul>
+    <li>Data/API down أو Heartbeat غائب.</li>
+    <li>SLA breach مستمر.</li>
+    <li>Daily loss limit reached أو Loss Ladder activated.</li>
+    <li>Order anomaly (timeout / reject / duplicate).</li>
+    <li>IBKR Subscription نزل عن 80% من الحد.</li>
+  </ul>
+
+  <h3>24.5 تقارير الطبقات (Layered Reports)</h3>
+  <div class="mutebox">الهدف: عند أي خسارة تستطيع تحديد الطبقة المسؤولة بدقة.</div>
+  <table>
+    <thead><tr><th>الطبقة</th><th>ماذا تُسجِّل</th><th>النتيجة</th></tr></thead>
+    <tbody>
+      <tr><td>Gates</td><td>Universe, Corporate, PriceRange, Regime, Daily, MTF</td><td>PASS/FAIL + السبب</td></tr>
+      <tr><td>Guards</td><td>Spread/Imbalance/Stale/Vacuum/Flicker + TTL</td><td>PASS/FAIL + TTL remaining</td></tr>
+      <tr><td>Tape</td><td>R, A, LP, Absorption, BLS, ScoreNorm, TapeScore</td><td>قيم خام + مُطبَّعة + وزن</td></tr>
+      <tr><td>Execution</td><td>FillLatency, RepriceCount, SlippageExp/Act</td><td>جودة التنفيذ</td></tr>
+      <tr><td>Risk</td><td>LossLadder, KillSwitch, StopIntegrity</td><td>أحداث حماية</td></tr>
+      <tr><td>Data</td><td>Heartbeat, DropRate, QueuePressure, SubCount</td><td>DataQuality timeline</td></tr>
+    </tbody>
+  </table>
+
+  <h3>24.6 Loss Attribution</h3>
+  <p>يُسجَّل سبب واحد رئيسي + حتى 3 أسباب ثانوية لكل خسارة.</p>
+  <ul>
+    <li><code>ENTRY_MODEL</code> — إشارة خاطئة / عتبة غير مضبوطة.</li>
+    <li><code>CONTEXT</code> — Daily أو MTF غير ملائم.</li>
+    <li><code>GUARDS</code> — سبريد / عمق / تقلب بنيوي.</li>
+    <li><code>EXECUTION</code> — انزلاق / تأخير / Partial fills.</li>
+    <li><code>RISK</code> — وقف / خروج / سلم خسائر.</li>
+    <li><code>DATA</code> — تدهور بيانات / حزم مفقودة.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §25 ════════════════════════ -->
+<section id="s25">
+  <h2>25) Pre/After-Hours + Session Timing <span class="new-tag">⬡ Session Timing مُضاف v7.0</span></h2>
+
+  <h3>25.1 أوقات الجلسات (Eastern Time)</h3>
+  <table>
+    <thead><tr><th>الجلسة</th><th>الوقت (ET)</th><th>الوضع الافتراضي</th></tr></thead>
+    <tbody>
+      <tr><td>Pre-Market</td><td>04:00 – 09:30</td><td>Monitor Only (إلا إذا مُفعَّل يدوياً)</td></tr>
+      <tr><td>Regular Session</td><td>09:30 – 16:00</td><td>تداول كامل</td></tr>
+      <tr><td>After-Hours</td><td>16:00 – 20:00</td><td>Monitor Only (إلا إذا مُفعَّل يدوياً)</td></tr>
+      <tr><td>ساعات غير تداول</td><td>20:00 – 04:00</td><td>إيقلاع كامل أو Sleep Mode</td></tr>
+    </tbody>
+  </table>
+
+  <h3>25.2 أوقات التحجيم الداخلي في Regular Session</h3>
+  <div class="mutebox">
+    <ul>
+      <li><b>09:30 – 09:45:</b> Monitor Only تلقائياً (Open Volatility Window — لا دخول).</li>
+      <li><b>09:45 – 15:45:</b> تداول كامل بشروط.</li>
+      <li><b>15:45 – 16:00:</b> لا دخول جديد (Closing Volatility Window).</li>
+    </ul>
+  </div>
+
+  <h3>25.3 شروط Pre/After-Hours (إذا مُفعَّل)</h3>
+  <div class="rulebox">
+    <b class="badge-danger">الوضع الافتراضي: Monitor Only في Pre/After-Hours.</b>
+    التفعيل يتطلب تأكيد مزدوج من الواجهة + جميع الشروط التالية:
+    <ul>
+      <li>SpreadPct ≤ ضعف حد §8.2 (Strict mode).</li>
+      <li>Volume ≥ 100,000 سهم في الجلسة الممتدة (قابل للتعديل من الإعدادات).</li>
+      <li>Tier A ≤ 3 رموز (تقليل الضغط في سيولة منخفضة).</li>
+      <li>Regime = Normal.</li>
+    </ul>
+  </div>
+  <p class="small">السيولة والسبريد في Pre/After-Hours أخطر بكثير. التعديل يتطلب مراجعة يدوية واعية.</p>
+</section>
+
+<!-- ════════════════════════ §26 ════════════════════════ -->
+<section id="s26">
+  <h2>26) Test Harness + Walk-Forward</h2>
+
+  <h3>26.0 Backtest متعدد المستويات (يدوي فقط)</h3>
+  <div class="mutebox">
+    <ul>
+      <li>تشغيل الباك تست يتم يدويًا من المستخدم عبر الواجهة.</li>
+      <li>الروبوت لا يُشغِّل باك تست تلقائيًا ولا يُعدِّل المعلمات تلقائيًا.</li>
+      <li>كل تشغيل ينتج Report موحد + ملفات نتائج قابلة للمقارنة.</li>
+    </ul>
+  </div>
+
+  <table>
+    <thead><tr><th>المستوى</th><th>الهدف</th><th>المدخلات</th><th>شرط النجاح</th></tr></thead>
+    <tbody>
+      <tr><td><b>L0 — Smoke</b></td><td>سلامة المسار</td><td>جلسة واحدة</td><td>0 أخطاء حرجة</td></tr>
+      <tr><td><b>L1 — Replay</b></td><td>حتمية القرارات</td><td>Tick-by-tick + Clock حتمي</td><td>تطابق Golden ≥ 99%</td></tr>
+      <tr><td><b>L2 — Walk-Forward</b></td><td>أداء على Out-of-Sample</td><td>Rolling windows 20d/5d</td><td>MaxDD ضمن الحدود</td></tr>
+      <tr><td><b>L3 — Stress</b></td><td>تحمل الحالات الحدية</td><td>Burst/Stale/Reconnect/Halt</td><td>لا خرق KillSwitch</td></tr>
+      <tr><td><b>L4 — Paper Shadow</b></td><td>معايرة Slippage</td><td>بيانات حية ورقية ≥ 20 صفقة</td><td>Actual ≤ 1.5× Expected</td></tr>
+    </tbody>
+  </table>
+
+  <div class="rulebox">
+    <b>قيود صارمة:</b>
+    <ul>
+      <li>لا تعديل تلقائي للأوزان أو العتبات — أي تعديل يدوي فقط.</li>
+      <li>كل تغيير مبني على نتائج باك تست يُسجَّل في <code>config_changelog.toml</code>.</li>
+    </ul>
+  </div>
+
+  <h3>26.1 Test Harness</h3>
+  <ul>
+    <li>Replay Engine: تشغيل بيانات تاريخية بترتيب حرفي (tick-by-tick).</li>
+    <li>Deterministic Clock: الزمن من البيانات لا من النظام.</li>
+    <li>Golden Decision Files: قرارات مرجعية لاختبار Regression بعد كل تغيير.</li>
+  </ul>
+
+  <h3>26.2 Stress Scenarios (إلزامية)</h3>
+  <ul>
+    <li>Burst ticks (1000 tick/s لمدة 30s).</li>
+    <li>Spread widening مفاجئ (×5 خلال ثانية).</li>
+    <li>Stale quotes (NBBO ثابت 10s مع trades).</li>
+    <li>Partial fills متعددة على نفس الأمر.</li>
+    <li>Reconnect أثناء صفقة مفتوحة.</li>
+    <li>LULD Halt ثم استئناف بعد 4 دقائق و بعد 6 دقائق.</li>
+    <li>Regime change Normal→Caution→Risk-Off أثناء صفقة.</li>
+    <li>Gap down &gt;8% عند الافتتاح.</li>
+  </ul>
+
+  <h3>26.3 Walk-Forward Methodology</h3>
+  <div class="mutebox">
+    <ul>
+      <li><b>تقسيم:</b> 70% In-Sample / 30% Out-of-Sample.</li>
+      <li><b>نافذة:</b> 20 يوم تداول، خطوة 5 أيام (rolling).</li>
+      <li><b>منع Lookahead Bias:</b> ATR وVolume Averages من In-Sample فقط.</li>
+      <li><b>مقاييس:</b> MaxDrawdown، Sharpe Ratio، Win Rate per Regime، Avg Slippage Ratio.</li>
+      <li><b>معايرة:</b> TapeScore thresholds وأوزان تُعدَّل فقط بعد Walk-Forward + توثيق مكتوب.</li>
+    </ul>
+  </div>
+
+  <h3>26.4 Live Micro Testing</h3>
+  <ul>
+    <li>أحجام 10–50 سهم لمعايرة α، β والرسوم الفعلية.</li>
+    <li>مقارنة Slippage متوقع vs فعلي لكل صفقة.</li>
+    <li>تحديث <code>default.toml</code> بعد كل دورة معايرة.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §27 ════════════════════════ -->
+<section id="s27">
+  <h2>27) Calendar Risk Automation</h2>
+  <ul>
+    <li><b>المصدر الأساسي:</b> API تلقائي (مثل Tradier Economic Calendar أو BLS/Fed RSS). يُحدَّث يومياً.</li>
+    <li><b>Fallback:</b> <code>configs/calendar.toml</code> إذا فشل المصدر الآلي.</li>
+    <li>إذا فشل المصدر وكانت القائمة اليدوية قديمة (&gt; 7 أيام): تنبيه + افترض Calendar = ON لليوم كله.</li>
+    <li>Calendar = ON: 60 دقيقة قبل الحدث، 30 دقيقة بعده.</li>
+    <li>أحداث مدعومة: CPI / FOMC / NFP / OPEC / PPI / GDP / FOMC Minutes.</li>
+  </ul>
+</section>
+
+<!-- ════════════════════════ §28 ════════════════════════ -->
+<section id="s28">
+  <h2>28) Adaptive Thresholds (توصيات أسبوعية يدوية)</h2>
+  <div class="mutebox">لا تعلم عميق. لا تعديل آلي للأوزان. توصيات خفيفة عبر مراجعة بيانات أسبوعية.</div>
+
+  <h3>28.1 جدول المراجعة</h3>
+  <ul>
+    <li>كل <b>جمعة</b> بعد إغلاق السوق — إذا كان عدد الصفقات ≥ 10.</li>
+    <li>المدخلات: Win Rate، Avg Slippage Ratio، Reject Reason Distribution، Win Rate per Regime.</li>
+  </ul>
+
+  <h3>28.2 قواعد التوصية (يدوية — لا آلية)</h3>
+  <table>
+    <thead><tr><th>الحالة</th><th>التوصية</th></tr></thead>
+    <tbody>
+      <tr><td>Win Rate في Regime &lt; 40% خلال أسبوعين</td><td>رفع TapeScore threshold بـ 3 نقاط + توثيق</td></tr>
+      <tr><td>Avg Slippage فعلي &gt; 1.5× المتوقع</td><td>رفع MinNetProfitUSD بـ 20% + إعادة معايرة α/β</td></tr>
+      <tr><td>أكثر Reject هو DAILY_CONTEXT</td><td>مراجعة يدوية لمعاملات §9 — لا تعديل آلي</td></tr>
+      <tr><td>أكثر Reject هو ANTI_CHASE</td><td>اقتراح خفض RunUpThreshold بـ 0.5% (حد أدنى 1.0%)</td></tr>
+      <tr><td>أكثر Reject هو MTF_VETO &gt; 60%</td><td>مراجعة MTF Gates بموجب §10.6</td></tr>
+    </tbody>
+  </table>
+
+  <h3>28.3 قواعد صارمة</h3>
+  <div class="rulebox">
+    <ul>
+      <li>كل تعديل يُسجَّل في <code>logs/adaptive_changes.log</code> مع السبب والتاريخ والقيمة القديمة والجديدة.</li>
+      <li>التعديل يُطبَّق في أول يوم تداول التالي — لا في منتصف الجلسة.</li>
+      <li>لا تعديل إذا عدد الصفقات &lt; 10 في الأسبوع (عينة غير كافية).</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ════════════════════════ §29 ════════════════════════ -->
+<section id="s29">
+  <h2>29) Symbol Blocklist (الخطوة 1)</h2>
+  <div class="okbox">الطبقة الأولى والأسرع — تُطبَّق قبل أي حساب آخر.</div>
+
+  <ul>
+    <li>ملف: <code>configs/blocklist.toml</code>.</li>
+    <li>يُحمَّل عند الإقلاع ويُعاد تحميله ديناميكياً (inotify / polling كل 60s) — لا إعادة تشغيل.</li>
+    <li>هيكل كل رمز: <code>symbol</code>، <code>reason</code>، <code>date_added</code>، <code>expiry</code> (اختياري)، <code>auto_added</code> (Boolean).</li>
+  </ul>
+
+  <h3>29.1 مصادر التحديث</h3>
+  <ul>
+    <li>يدوي: من الإعدادات مباشرة.</li>
+    <li>تلقائي من IBKR Events: Delisting Notice → Block تلقائي.</li>
+    <li>Compliance Warning → Watch لمدة 7 أيام → Block تلقائي إذا تجددت.</li>
+  </ul>
+
+  <div class="mutebox">
+    SlowLoop يفحص الرموز المنتهية (<code>expiry &lt; now</code>) ويزيلها ويسجل <code>BLOCKLIST_EXPIRED_REMOVED</code>.
+  </div>
+</section>
+
+<!-- ════════════════════════ §30 ════════════════════════ -->
+<section id="s30">
+  <h2>30) Deliverables</h2>
+  <table>
+    <thead><tr><th>المخرج</th><th>الوصف</th><th>الحالة</th></tr></thead>
+    <tbody>
+      <tr><td>SDD</td><td>Software Design Document مطابق 1:1 لهذه الوثيقة</td><td>مطلوب</td></tr>
+      <tr><td>Rust Crates</td><td>Workspace + crates واضحة الحدود (§31)</td><td>مطلوب</td></tr>
+      <tr><td>Python Bridge</td><td>Batching + backpressure + heartbeat + QoS</td><td>مطلوب</td></tr>
+      <tr><td>Test Harness</td><td>Replay + Golden Decisions + Deterministic Clock</td><td>مطلوب</td></tr>
+      <tr><td>Runbook</td><td>تشغيل / مراقبة / استعادة / طوارئ / تحديث Blocklist</td><td>مطلوب</td></tr>
+      <tr><td>Config Spec</td><td>جدول §33 محدَّث مع كل تغيير</td><td>مطلوب</td></tr>
+      <tr><td>Locales</td><td>ar.ftl و en.ftl كاملان (§1.6)</td><td>مطلوب</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ════════════════════════ §31 ════════════════════════ -->
+<section id="s31">
+  <h2>31) Crate Layout</h2>
+  <pre><code>robust_penny_scalper/
+  docs/
+    Robust_Penny_Scalper_v7_0_FINAL.html    # هذه الوثيقة
+  proto/
+    schema.fbs                              # FlatBuffers schema
+  configs/
+    default.toml                            # جميع الثوابت (راجع §33)
+    blocklist.toml                          # Symbol Blocklist
+    calendar.toml                           # Fallback Calendar
+    config_changelog.toml                   # سجل تغييرات الإعدادات
+    locales/
+      ar.ftl                                # نصوص الواجهة — عربي
+      en.ftl                                # نصوص الواجهة — إنجليزي
+  rust/
+    Cargo.toml                              # Workspace
+    crates/
+      core_types/                           # Event, Symbol, State, RejectReason enums
+      event_bus/                            # tokio::mpsc channels
+      watchlist_engine/                     # SlowLoop + Tier management
+      tape_engine/                          # R, A, LP, Absorption, BLS, Normalization
+      regime_engine/                        # Regime Gate + Calendar
+      risk_engine/                          # Kill Switch + Loss Ladder + PDT monitor
+      execution_engine/                     # OMS + Bracket + Fill + Idempotency
+      metrics_observability/               # DecisionLog + TradeJournal + Alerts
+      app_runtime/                          # Task wiring + startup + shutdown
+    bins/
+      rpsd/                                 # main binary
+  python/
+    pyproject.toml
+    rps_bridge/
+      __init__.py
+      ibkr_client.py                        # ib_insync connection
+      encoder.py                            # MessagePack / FlatBuffers
+      uds_sender.py                         # Unix Domain Socket sender
+      health.py                             # Heartbeat + DataQuality
+  logs/
+    adaptive_changes.log                   # سجل التعديلات التكيفية</code></pre>
+
+  <div class="foot">
+    <b>مبدأ حاكم:</b> RiskTask يملك سلطة Monitor Only وKill Switch. إذا تعارضت أي طبقة — طبقة Risk تفوز دائماً.
+  </div>
+</section>
+
+<!-- ════════════════════════ §32 — جديد ════════════════════════ -->
+<section id="s32">
+  <h2>32) Engineering Rationale <span class="new-tag">⬡ جديد كلياً في v7.0</span></h2>
+  <p>يُوثِّق هذا القسم <b>سبب</b> القرارات الهندسية الرئيسية لمنع الرجوع عنها بدون دليل.</p>
+
+  <h3>32.1 لماذا Cold Start لم يُحذف؟</h3>
+  <div class="mutebox">
+    رغم تعقيده، يحمي النظام من الدخول على بيانات ناقصة عند ترقية Tier.
+    <code>ε = 1e-6</code> يمنع القسمة على صفر. الحل محافظ ومُعقَّد بشكل متعمد.
+  </div>
+
+  <h3>32.2 لماذا Correlation Threshold = 0.40؟</h3>
+  <div class="mutebox">
+    ليس عشوائياً — متسق مع معايير إدارة المخاطر في Prop Desks صغيرة.
+    Penny Stocks ذات تباين عالٍ → threshold منخفض يُولِّد false rejects كثيرة.
+    0.40 توازن بين حماية التركز وتوفير فرص كافية.
+  </div>
+
+  <h3>32.3 لماذا MinStopDistance متعدد العوامل؟</h3>
+  <div class="mutebox">
+    الجمع بين نسبة السعر (1.2%) وATR (0.8×) و0.02$ الثابت:
+    يمنع وقفاً ضيقاً جداً يؤدي لـ Position Size ضخمة في أسهم منخفضة التقلب اللحظي.
+    RiskPerTrade يبقى ثابتاً (25$) عبر حجم المركز عند تطبيق المعادلة.
+  </div>
+
+  <h3>32.4 لماذا Internal SLA = 10ms وليس 100ms؟</h3>
+  <div class="mutebox">
+    10ms هدف هندسي داخلي (FastLoop processing) — يُقاس من استلام الحدث حتى اتخاذ القرار.<br>
+    25ms حد Hard Fail داخلي — إذا تجاوز لأكثر من 5 ثوان → Monitor Only.<br>
+    100ms Hard Max End-to-End (Tick → Order sent، شامل Python Bridge + UDS) — بعده Monitor Only.<br>
+    الثلاثة ليست متعارضة — كل منها يقيس مستوى مختلفاً من المسار. (راجع §22)
+  </div>
+
+  <h3>32.5 لماذا Python Bridge وليس كل شيء في Rust؟</h3>
+  <div class="mutebox">
+    ib_insync هو المكتبة الأكثر نضجاً للاتصال بـ IBKR TWS.
+    الكتابة في Rust خام تتطلب reverse engineering لبروتوكول IBKR غير موثَّق كاملاً.
+    التكلفة: UDS latency (~0.1ms على نفس الجهاز) — مقبولة جداً مقارنة بالبديل.
+  </div>
+
+  <h3>32.6 لماذا TapeScore أولاً وليس ExpectedNet؟</h3>
+  <div class="mutebox">
+    ExpectedNet يعتمد على Shares — والـ Shares تعتمد على StopDistance.
+    TapeScore أسرع حسابياً (O(1) من Ring Buffers جاهزة).
+    رفض على TapeScore أرخص من حساب كامل لـ ExpectedNet.
+    الترتيب يُحسِّن الأداء دون المساس بسلامة القرار.
+  </div>
+</section>
+
+<!-- ════════════════════════ §33 — جديد ════════════════════════ -->
+<section id="s33">
+  <h2>33) Config Reference Table <span class="new-tag">⬡ جديد كلياً في v7.0</span></h2>
+  <div class="goldbox">
+    جدول مرجعي لجميع الإعدادات القابلة للضبط في <code>configs/default.toml</code>.
+    لا تُعدَّل قيمة دون تسجيلها في <code>config_changelog.toml</code> مع التاريخ والسبب.
+  </div>
+
+  <table>
+    <thead><tr><th>المفتاح</th><th>القيمة الافتراضية</th><th>النطاق المسموح</th><th>متى يُعدَّل</th><th>المرجع</th></tr></thead>
+    <tbody>
+      <!-- Risk & Loss -->
+      <tr><td><span class="cfg-key">max_daily_loss_usd</span></td><td>100.00$</td><td>50 – 500</td><td>يدوي، قبل الجلسة، إذا تغير رأس المال &gt;25%</td><td>§0</td></tr>
+      <tr><td><span class="cfg-key">risk_per_trade_usd</span></td><td>25.00$</td><td>10 – 100</td><td>يدوي، بعد Walk-Forward</td><td>§16</td></tr>
+      <tr><td><span class="cfg-key">max_position_pct</span></td><td>0.15 (15%)</td><td>0.05 – 0.25</td><td>يدوي فقط</td><td>§16</td></tr>
+      <tr><td><span class="cfg-key">budget_cap_pct</span></td><td>0.20 (20%)</td><td>0.10 – 0.30</td><td>يدوي فقط</td><td>§16</td></tr>
+      <!-- Price Range -->
+      <tr><td><span class="cfg-key">target_price_min</span></td><td>0.30$</td><td>0.30 – 24.99</td><td>قبل الجلسة فقط</td><td>§8.75</td></tr>
+      <tr><td><span class="cfg-key">target_price_max</span></td><td>25.00$</td><td>0.31 – 25.00</td><td>قبل الجلسة فقط</td><td>§8.75</td></tr>
+      <!-- Universe Liquidity -->
+      <tr><td><span class="cfg-key">min_avg_daily_volume</span></td><td>2,000,000</td><td>500,000 – 10M</td><td>يدوي، بعد Walk-Forward</td><td>§8</td></tr>
+      <tr><td><span class="cfg-key">min_avg_weekly_volume</span></td><td>5,000,000</td><td>1M – 20M</td><td>يدوي، بعد Walk-Forward</td><td>§8</td></tr>
+      <tr><td><span class="cfg-key">min_addv_usd</span></td><td>50,000$</td><td>10,000 – 500,000</td><td>يدوي حسب رأس المال</td><td>§8</td></tr>
+      <!-- TapeScore -->
+      <tr><td><span class="cfg-key">tape_threshold_normal</span></td><td>72</td><td>60 – 85</td><td>بعد Walk-Forward موثَّق</td><td>§2</td></tr>
+      <tr><td><span class="cfg-key">tape_threshold_post_target</span></td><td>82</td><td>72 – 92</td><td>بعد Walk-Forward موثَّق</td><td>§2</td></tr>
+      <tr><td><span class="cfg-key">tape_threshold_warm</span></td><td>67</td><td>55 – 75</td><td>بعد Walk-Forward موثَّق</td><td>§2, §12</td></tr>
+      <!-- Weights -->
+      <tr><td><span class="cfg-key">w_r / w_a / w_lp / w_spr / w_abs / w_bls</span></td><td>0.30 / 0.22 / 0.22 / 0.13 / 0.08 / 0.05</td><td>∑ = 1.00 دائماً</td><td>بعد Walk-Forward فقط</td><td>§2.3</td></tr>
+      <!-- Stops -->
+      <tr><td><span class="cfg-key">k_atr</span></td><td>2.0</td><td>1.0 – 3.5</td><td>بعد Live Micro Testing</td><td>§16</td></tr>
+      <tr><td><span class="cfg-key">min_stop_distance_usd</span></td><td>0.02$</td><td>0.01 – 0.10</td><td>يدوي فقط</td><td>§16</td></tr>
+      <tr><td><span class="cfg-key">min_stop_pct</span></td><td>0.012 (1.2%)</td><td>0.005 – 0.025</td><td>يدوي فقط</td><td>§16</td></tr>
+      <!-- Anti-Chase -->
+      <tr><td><span class="cfg-key">anti_chase_runup_pct</span></td><td>0.02 (2%)</td><td>0.01 – 0.04</td><td>يدوي، بعد §28 مراجعة</td><td>§15</td></tr>
+      <!-- Slippage Model -->
+      <tr><td><span class="cfg-key">slippage_alpha</span></td><td>0.5</td><td>0.1 – 1.5</td><td>بعد Live Micro Testing</td><td>§18</td></tr>
+      <tr><td><span class="cfg-key">slippage_beta</span></td><td>0.3</td><td>0.05 – 1.0</td><td>بعد Live Micro Testing</td><td>§18</td></tr>
+      <!-- Regime -->
+      <tr><td><span class="cfg-key">regime_atr_normal_max</span></td><td>0.0018 (0.18%)</td><td>0.001 – 0.003</td><td>يدوي فقط</td><td>§11</td></tr>
+      <tr><td><span class="cfg-key">regime_breadth_normal_min</span></td><td>0.45 (45%)</td><td>0.30 – 0.60</td><td>يدوي فقط</td><td>§11</td></tr>
+      <!-- Correlation -->
+      <tr><td><span class="cfg-key">correlation_threshold</span></td><td>0.40</td><td>0.25 – 0.70</td><td>يدوي فقط (راجع §32.2)</td><td>§17</td></tr>
+      <!-- Fees -->
+      <tr><td><span class="cfg-key">sec_fee_rate</span></td><td>0.0000278</td><td>تُحدَّث سنوياً</td><td>كل يناير من موقع SEC</td><td>§18</td></tr>
+      <tr><td><span class="cfg-key">taf_rate</span></td><td>0.000166</td><td>تُحدَّث سنوياً</td><td>كل يناير من موقع FINRA</td><td>§18</td></tr>
+      <!-- Pre/After -->
+      <tr><td><span class="cfg-key">pre_after_min_volume</span></td><td>100,000</td><td>50,000 – 500,000</td><td>يدوي، قبل التفعيل</td><td>§25</td></tr>
+      <tr><td><span class="cfg-key">pre_after_enabled</span></td><td>false</td><td>true / false</td><td>تأكيد مزدوج من الواجهة</td><td>§25</td></tr>
+      <!-- Pacing -->
+      <tr><td><span class="cfg-key">ibkr_subscription_budget</span></td><td>80</td><td>20 – 100</td><td>حسب نوع حساب IBKR</td><td>§7.2</td></tr>
+      <tr><td><span class="cfg-key">slow_loop_pacing_per_min</span></td><td>30</td><td>10 – 60</td><td>يدوي، حسب IBKR pacing rules</td><td>§7.4</td></tr>
+      <!-- Large Print -->
+      <tr><td><span class="cfg-key">large_print_threshold_usd_floor</span></td><td>0$ (معطَّل)</td><td>0 – 10,000</td><td>يدوي، بعد Live Micro Testing</td><td>§13</td></tr>
+      <!-- Adaptive / Net -->
+      <tr><td><span class="cfg-key">min_net_profit_usd</span></td><td>0.10$</td><td>0.05 – 1.00</td><td>يدوي، بعد §28 مراجعة</td><td>§18, §28</td></tr>
+      <!-- Cold Start -->
+      <tr><td><span class="cfg-key">snap_min_trade_count</span></td><td>5</td><td>2 – 20</td><td>يدوي، بعد Walk-Forward</td><td>§12.4</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ════════════════════════ §34 ════════════════════════ -->
+<section id="s34">
+  <h2>34) سجل التغييرات الكامل</h2>
+
+  <div class="newbox">
+    <b class="badge-new">v6.1 → v6.2 (إصلاحات حرجة)</b>
+    <ul>
+      <li>تعريف معادلة TapeScore + الأوزان الابتدائية.</li>
+      <li>تعريف MTF كمياً: EMA(10w)، مقاومة 2 لمسة، Pullback Confirmation.</li>
+      <li>MinStopDistance = max(0.01$, 0.5% × Price).</li>
+      <li>Imbalance Guard: BidQty/(BidQty+AskQty) &lt; 0.30.</li>
+      <li>استعادة Absorption + BLS + Corporate Actions Gate من v5.1.</li>
+    </ul>
+  </div>
+
+  <div class="newbox">
+    <b class="badge-new">v6.2 → v6.4 (دمج متطلبات المنتج)</b>
+    <ul>
+      <li>إضافة Price Range Gate (§8.75): 0.30$ – 25$.</li>
+      <li>إضافة UI Spec: شاشات إلزامية + Validation (§1.5).</li>
+      <li>إضافة i18n: Project Fluent (§1.6).</li>
+      <li>تعريف Backtest Levels L0–L4 (§26).</li>
+      <li>توسيع Observability: Layered Reports + Loss Attribution (§24.5–6).</li>
+      <li>Pre/After-Hours rules (§25).</li>
+      <li>Adaptive Thresholds (§28) — أسبوعية.</li>
+      <li>Symbol Blocklist ديناميكي (§29).</li>
+    </ul>
+  </div>
+
+  <div class="newbox">
+    <b class="badge-new">v6.4 → v6.9 (توحيد وإصلاح تعارضات)</b>
+    <ul>
+      <li>توحيد ترتيب القرار في مكان واحد (§2.1) — إزالة التضارب بين قائمتين.</li>
+      <li>تحسين MinStopDistance: إضافة 0.8 × ATR_1m كعامل ثالث.</li>
+      <li>تحسين Absorption: ± max(0.5¢, 0.15% × Price) — متكيف مع السعر.</li>
+      <li>إضافة Correlation Guard التنفيذي الكامل (SlowLoop + Pearson).</li>
+      <li>دمج سياستَي LULD/Halt في §20.3 موحَّد.</li>
+      <li>دمج Gap Risk في §20.4 موحَّد.</li>
+      <li>توضيح SLA: Internal 10ms/25ms vs End-to-End.</li>
+      <li>إضافة IBKR Subscription Limits (§7.2).</li>
+      <li>إضافة دوال التطبيع الكاملة (§13.3).</li>
+      <li>إضافة Volume-Proxy لتعريف محفز اليوم كمياً (§9.2).</li>
+      <li>إضافة MaxPositionValue 15% في معادلة الحجم (§16.2).</li>
+      <li>إضافة SpreadPct للنطاق 20–25$ في §8.2.</li>
+    </ul>
+  </div>
+
+  <div class="goldbox">
+    <b class="badge-gold">v6.9 → v7.0 (إضافات جوهرية)</b>
+    <ul>
+      <li><b>[§21.2 ⬡]</b> إضافة PDT Rule awareness — توثيح نطاق تطبيق القاعدة على Cash vs Margin.</li>
+      <li><b>[§25.1 ⬡]</b> إضافة Session Timing كاملة: Pre-Market / Regular / After-Hours / Open&Close Windows.</li>
+      <li><b>[§32 ⬡]</b> قسم Engineering Rationale جديد — يُوثِّق سبب كل قرار هندسي رئيسي.</li>
+      <li><b>[§33 ⬡]</b> Config Reference Table جديد — جميع الإعدادات القابلة للضبط في مكان واحد.</li>
+      <li><b>[§24.3 ⬡]</b> إضافة IBKR Subscription Count كـ Metric مُتتبَّع.</li>
+      <li><b>[§26.2 ⬡]</b> إضافة سيناريو Gap down &gt;8% في Stress Tests.</li>
+      <li><b>[§7.2 ⬡]</b> تحديد حد 80% للتنبيه المبكر قبل بلوغ Subscription Limit.</li>
+      <li><b>[§10.6 ⬡]</b> إضافة تحفظ MTF Reject Rate &gt; 60% كمؤشر لمراجعة Gate.</li>
+      <li><b>[§1.5.3 ⬡]</b> إضافة MaxDailyLoss كعنصر Validation في UI.</li>
+      <li><b>[§6.2 ⬡]</b> إضافة قاعدة رفض الأحداث القديمة (ts_src &gt; 5s).</li>
+      <li><b>[§32.6 ⬡]</b> شرح سبب تقدم TapeScore على ExpectedNet في الترتيب.</li>
+    </ul>
+  </div>
+
+  <div class="foot">
+    <b>v7.0 FINAL</b> = v6.4 (قواعد الأساس المكتملة) + v6.9 (توحيد وإصلاح تعارضات) + v7.0 (Config Reference + Rationale + PDT + Session Timing).
+    هذه الوثيقة هي المرجع الوحيد — أي نسخة سابقة تُعتبر ملغاة.
+  </div>
+</section>
+
+</div><!-- /container -->
+</body>
+</html>

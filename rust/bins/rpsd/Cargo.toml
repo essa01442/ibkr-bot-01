@@ -1,0 +1,10 @@
+[package]
+name = "rpsd"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+app_runtime = { path = "../../crates/app_runtime" }
+tokio = { workspace = true, features = ["full"] }
+log = { workspace = true }
+env_logger = "0.10"

@@ -231,6 +231,7 @@ impl GuardEvaluator {
         Err(reason)
     }
 
+
     /// Call this when a market data update occurs to track flicker/staleness
     /// without necessarily performing a full validation check (or before it).
     ///

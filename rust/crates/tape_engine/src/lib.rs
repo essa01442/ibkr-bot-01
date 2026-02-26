@@ -144,6 +144,37 @@ impl TapeEngine {
 
         // 0. Pre-Gate: Tier A Only (User Requirement)
         if state.tier != Tier::A {
+            return Err(RejectReason::Blocklist);
+        }
+
+        // 1. Blocklist Check
+        if self.risk_state.check_entry(symbol).is_err() {
+            return Err(RejectReason::Blocklist);
+        }
+
+        // 2. Corporate Actions Gate (Covered by check_entry)
+
+        // 3. Price Range & 4. Liquidity (RiskState)
+        let (adv, addv_usd) = match &state.daily_context {
+            Some(ctx) => {
+                let adv = ctx.volume_profile.avg_20d_volume;
+                (adv, adv as f64 * state.tape.price)
+            },
+            None => (0, 0.0)
+        };
+
+        if let Err(e) = self.risk_state.check_liquidity(
+            state.tape.price,
+            state.tape.spread_cents / state.tape.price, // spread pct
+            adv,
+            addv_usd
+        ) {
+            return Err(e);
+        }
+
+
+        // 0. Pre-Gate: Tier A Only (User Requirement)
+        if state.tier != Tier::A {
             // If not Tier A, we reject early? Or implies "Not Watchlist"?
             // Prompt says: "Tier A only". Assuming for *entry*.
             // We reuse Blocklist reason or maybe Unknown/Blocklist?
@@ -194,6 +225,7 @@ impl TapeEngine {
                     return Err(RejectReason::DailyContext);
                 }
             },
+            None => return Err(RejectReason::DailyContext),
             None => return Err(RejectReason::DailyContext), // No context = unsafe
         }
 
@@ -208,11 +240,17 @@ impl TapeEngine {
         }
 
         // 8. Anti-Chase Filter
+        // Passing &state.tape directly to avoid borrowing self while borrowing state
+        if Self::check_anti_chase(&state.tape) {
         if self.check_anti_chase(state) {
             return Err(RejectReason::AntiChase);
         }
 
         // 9. Microstructure Guards
+        self.guard_evaluator.check_execution(
+            symbol,
+            ts_src,
+            ts_src,
         // check_execution checks blocklist and microstructure guards (Spread, Imbalance, etc)
         // but does NOT update flicker buffer (track_event does that).
         self.guard_evaluator.check_execution(
@@ -230,17 +268,21 @@ impl TapeEngine {
         if state.tape.is_reversal {
             return Err(RejectReason::TapeReversal);
         }
+        // Use static method to avoid borrow issues
+        let scores = Self::calculate_scores(&state.tape);
         let scores = self.calculate_scores(&state.tape);
         if scores.total_score < TAPESCORE_THRESHOLD {
             return Err(RejectReason::TapeScoreLow);
         }
 
         // 11. ExpectedNet Validation
+        if Self::expected_net(&state.tape) <= 0.0 {
         if self.expected_net(&state.tape) <= 0.0 {
             return Err(RejectReason::NetNegative);
         }
 
         // 12. Exposure / Correlation Check
+        if !Self::check_exposure(&self.risk_state, symbol) {
         if !self.check_exposure(symbol) {
             return Err(RejectReason::Exposure);
         }
@@ -252,6 +294,7 @@ impl TapeEngine {
         self.symbol_states.entry(symbol).or_insert_with(SymbolState::new)
     }
 
+    pub fn calculate_scores(tape: &TapeMetrics) -> TapeComponentScores {
     pub fn calculate_scores(&self, tape: &TapeMetrics) -> TapeComponentScores {
         let r_score = tape.rate_ticks_per_sec.min(100.0).max(0.0);
         let a_score = (tape.aggressive_buy_ratio * 100.0).min(100.0).max(0.0);
@@ -284,6 +327,9 @@ impl TapeEngine {
         }
     }
 
+    fn check_anti_chase(tape: &TapeMetrics) -> bool {
+        if tape.vwap > 0.0 && tape.atr > 0.0 {
+            if tape.price > tape.vwap + (2.0 * tape.atr) {
     fn check_anti_chase(&self, state: &SymbolState) -> bool {
         // Simple logic: If price is > VWAP + 2 * ATR, consider it extended/chasing.
         // Assuming ATR and VWAP are populated.
@@ -295,6 +341,13 @@ impl TapeEngine {
         false
     }
 
+    fn expected_net(tape: &TapeMetrics) -> f64 {
+        let scores = Self::calculate_scores(tape);
+        if scores.total_score > 72.0 { 0.10 } else { -0.10 }
+    }
+
+    fn check_exposure(risk_state: &RiskState, _symbol: SymbolId) -> bool {
+        if risk_state.open_positions >= 3 {
     fn expected_net(&self, tape: &TapeMetrics) -> f64 {
         // Placeholder: Expectancy = (WinProb * Reward) - (LossProb * Risk)
         // We can proxy WinProb with TapeScore.

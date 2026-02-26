@@ -14,7 +14,7 @@ use core_types::{RejectReason, SymbolId, CorporateAction, LiquidityConfig};
 use std::collections::{HashMap, HashSet};
 
 pub mod guards;
-
+pub mod sizing;
 pub struct RiskState {
     pub daily_loss_usd: f64,
     pub open_positions: usize,

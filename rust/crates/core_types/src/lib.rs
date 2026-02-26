@@ -64,6 +64,82 @@ pub enum RejectReason {
     Unknown = 255,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum CorporateAction {
+    Allowed = 0,
+    Watch = 1,
+    Block = 2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiquidityConfig {
+    pub target_price_min: f64,
+    pub target_price_max: f64,
+    pub max_spread_pct: f64,
+    pub min_avg_daily_volume: u64,
+    pub min_addv_usd: f64,
+}
+
+impl Default for LiquidityConfig {
+    fn default() -> Self {
+        Self {
+            target_price_min: 1.0,
+            target_price_max: 20.0,
+            max_spread_pct: 0.05, // 5%
+            min_avg_daily_volume: 500_000,
+            min_addv_usd: 1_000_000.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum RegimeState {
+    Normal = 0,
+    Caution = 1,
+    RiskOff = 2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum DataQuality {
+    Ok = 0,
+    Degraded = 1,
+    Halted = 2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ContextState {
+    Undetermined = 0,
+    Play = 1,
+    NoPlay = 2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectorMomentum {
+    pub etf_symbol: String,
+    pub change_pct: f64,
+    pub is_favorable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeProfile {
+    pub current_volume: u64,
+    pub avg_20d_volume: u64,
+    pub is_surge: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyContext {
+    pub symbol_id: SymbolId,
+    pub state: ContextState,
+    pub volume_profile: VolumeProfile,
+    pub has_news: bool,
+    pub sector_momentum: Option<SectorMomentum>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Event {
@@ -165,43 +241,4 @@ mod tests {
 
         println!("Size of TickData: {} bytes", mem::size_of::<TickData>());
     }
-//! Contains shared domain types and error definitions.
-//! This crate must not depend on any other crate in the workspace.
-//! It serves as the common vocabulary for the system.
-
-use serde::{Serialize, Deserialize};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct SymbolId(pub u32);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RejectReason {
-    Blocklist,
-    CorporateActionBlock,
-    PriceRange,
-    Liquidity,
-    Regime,
-    DailyContext,
-    MtfVeto,
-    AntiChase,
-    GuardSpread,
-    GuardImbalance,
-    GuardStale,
-    GuardSlippage,
-    GuardL2Vacuum,
-    GuardFlicker,
-    TapeScoreLow,
-    NetNegative,
-    Exposure,
-    TapeReversal,
-    Unknown(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Event {
-    pub ts_src: u64,
-    pub ts_rx: u64,
-    pub symbol_id: SymbolId,
-    pub seq: u64,
-    // data payload would be here
 }

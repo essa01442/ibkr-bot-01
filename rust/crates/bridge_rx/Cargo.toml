@@ -6,5 +6,6 @@ edition = "2021"
 [dependencies]
 tokio = { workspace = true, features = ["net", "io-util", "time"] }
 log = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
 core_types = { path = "../core_types" }
 event_bus = { path = "../event_bus" }

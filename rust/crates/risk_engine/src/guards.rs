@@ -130,6 +130,7 @@ impl GuardEvaluator {
     /// * `bid_size` - Size at Best Bid.
     /// * `ask_size` - Size at Best Ask.
     /// * `last_trade_price` - Price of the last trade (for slippage check).
+    #[allow(clippy::too_many_arguments)]
     pub fn check_execution(
         &mut self,
         symbol: SymbolId,

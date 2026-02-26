@@ -96,6 +96,7 @@ pub enum RejectReason {
     TapeReversal = 17,
     MonitorOnly = 18,
     MaxDailyLoss = 19,
+    PdtViolation = 20,
     Unknown = 255,
 }
 
@@ -323,6 +324,9 @@ pub struct RejectData {
 // Re-export time_buffer
 pub mod time_buffer;
 pub use time_buffer::TimeRingBuffer;
+
+pub mod config;
+pub use config::*;
 
 #[cfg(test)]
 mod tests {

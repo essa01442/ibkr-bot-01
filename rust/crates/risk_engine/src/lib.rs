@@ -20,6 +20,7 @@ use std::io::BufReader;
 pub mod guards;
 pub mod sizing;
 pub mod exposure;
+pub mod pdt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RiskLadderStep {
@@ -40,6 +41,11 @@ pub struct RiskState {
     pub risk_ladder: Vec<RiskLadderStep>,
     #[serde(skip)] // Do not persist exposure cache
     pub exposure_validator: exposure::ExposureValidator,
+    #[serde(skip, default)]
+    pub pdt_guard: pdt::PdtGuard,
+
+    /// Tracks unsettled cash from recent sells. key = settlement_date_ordinal, value = USD amount.
+    pub unsettled_proceeds: std::collections::BTreeMap<u32, f64>,
 }
 
 impl RiskState {
@@ -55,6 +61,8 @@ impl RiskState {
             monitor_only: false,
             risk_ladder: Vec::new(),
             exposure_validator: exposure::ExposureValidator::new(),
+            pdt_guard: pdt::PdtGuard::new(3),
+            unsettled_proceeds: std::collections::BTreeMap::new(),
         }
     }
 
@@ -110,7 +118,7 @@ impl RiskState {
         self.monitor_only = monitor_only;
     }
 
-    pub fn check_entry(&self, symbol_id: SymbolId, open_symbols: &[SymbolId]) -> Result<(), RejectReason> {
+    pub fn check_entry(&self, symbol_id: SymbolId, open_symbols: &[SymbolId], today_ordinal: u32) -> Result<(), RejectReason> {
         if self.monitor_only {
             return Err(RejectReason::MonitorOnly);
         }
@@ -125,6 +133,15 @@ impl RiskState {
 
         if self.should_terminate() {
             return Err(RejectReason::MaxDailyLoss);
+        }
+
+        // Check PDT
+        if self.pdt_guard.would_violate(today_ordinal) {
+             // We don't have a specific RejectReason for PDT in core_types yet, using Blocklist/Unknown or defining new
+             // Assuming Blocklist for now or adding PDT in core_types later.
+             // Given instructions: "RejectReason::Blocklist" is closest existing, but let's see.
+             // Spec doesn't strictly define new Enum variant.
+             return Err(RejectReason::PdtViolation);
         }
 
         // Check Exposure
@@ -174,6 +191,14 @@ impl RiskState {
         // Also update exposure validator if needed (not fully mapped here without symbol details)
     }
 
+    pub fn available_cash(&self, today_ordinal: u32, total_cash: f64) -> f64 {
+        let locked: f64 = self.unsettled_proceeds.iter()
+            .filter(|(&settle_date, _)| settle_date > today_ordinal)
+            .map(|(_, &amt)| amt)
+            .sum();
+        (total_cash - locked).max(0.0)
+    }
+
     // Persistence
     pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
         let file = File::create(path)?;
@@ -204,18 +229,18 @@ mod tests {
         let symbol = SymbolId(1);
 
         // Initially allowed (implicitly)
-        assert!(risk.check_entry(symbol, &[]).is_ok());
+        assert!(risk.check_entry(symbol, &[], 0).is_ok());
 
         // Set to Watch - should still be allowed
         risk.set_corporate_action(symbol, CorporateAction::Watch);
-        assert!(risk.check_entry(symbol, &[]).is_ok());
+        assert!(risk.check_entry(symbol, &[], 0).is_ok());
         assert!(!risk.blocklist.contains(&symbol));
 
         // Set to Block - should be blocked
         risk.set_corporate_action(symbol, CorporateAction::Block);
         assert!(risk.blocklist.contains(&symbol));
 
-        match risk.check_entry(symbol, &[]) {
+        match risk.check_entry(symbol, &[], 0) {
             Err(RejectReason::CorporateActionBlock) => (),
             _ => panic!("Expected CorporateActionBlock"),
         }
@@ -227,7 +252,7 @@ mod tests {
         let symbol = SymbolId(2);
 
         risk.block_symbol(symbol);
-        match risk.check_entry(symbol, &[]) {
+        match risk.check_entry(symbol, &[], 0) {
             Err(RejectReason::Blocklist) => (),
             _ => panic!("Expected Blocklist"),
         }
@@ -238,16 +263,16 @@ mod tests {
         let mut risk = default_risk_state();
         let symbol = SymbolId(1);
 
-        assert!(risk.check_entry(symbol, &[]).is_ok());
+        assert!(risk.check_entry(symbol, &[], 0).is_ok());
 
         risk.set_monitor_only(true);
-        match risk.check_entry(symbol, &[]) {
+        match risk.check_entry(symbol, &[], 0) {
             Err(RejectReason::MonitorOnly) => (),
             _ => panic!("Expected MonitorOnly"),
         }
 
         risk.set_monitor_only(false);
-        assert!(risk.check_entry(symbol, &[]).is_ok());
+        assert!(risk.check_entry(symbol, &[], 0).is_ok());
     }
 
     #[test]
@@ -256,21 +281,21 @@ mod tests {
         let symbol = SymbolId(1);
 
         risk.update_pnl(-50.0);
-        assert!(risk.check_entry(symbol, &[]).is_ok());
+        assert!(risk.check_entry(symbol, &[], 0).is_ok());
 
 
         risk.update_pnl(-50.0);
-        assert!(risk.check_entry(symbol, &[]).is_ok());
+        assert!(risk.check_entry(symbol, &[], 0).is_ok());
 
         risk.update_pnl(-100.0);
-        match risk.check_entry(symbol, &[]) {
+        match risk.check_entry(symbol, &[], 0) {
             Err(RejectReason::MaxDailyLoss) => (),
             _ => panic!("Expected MaxDailyLoss at -100"),
         }
         assert!(risk.should_terminate());
 
         risk.update_pnl(-101.0);
-        match risk.check_entry(symbol, &[]) {
+        match risk.check_entry(symbol, &[], 0) {
             Err(RejectReason::MaxDailyLoss) => (),
             _ => panic!("Expected MaxDailyLoss at -101"),
         }

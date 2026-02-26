@@ -21,6 +21,7 @@ impl Default for MtfParams {
 
 pub struct MtfEngine {
     params: MtfParams,
+    #[allow(dead_code)]
     symbol_id: SymbolId,
 
     // Inputs

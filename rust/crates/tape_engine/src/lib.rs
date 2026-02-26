@@ -10,20 +10,11 @@
 use core_types::{
     Event, EventKind, RejectReason, SymbolId, TickData, TapeComponentScores,
     Tier, RegimeState, DailyContext, MtfAnalysis, ContextState,
+    config::TapeConfig, ColdStartState,
 };
 use risk_engine::{RiskState, guards::{GuardEvaluator, GuardConfig}};
 use std::collections::HashMap;
-
-// Hardcoded weights from config (0.30, 0.22, 0.22, 0.13, 0.08, 0.05)
-const W_R: f64 = 0.30;
-const W_A: f64 = 0.22;
-const W_LP: f64 = 0.22;
-const W_SPR: f64 = 0.13;
-const W_ABS: f64 = 0.08;
-const W_BLS: f64 = 0.05;
-
-// Constants for Decision Logic
-const TAPESCORE_THRESHOLD: f64 = 72.0;
+use std::sync::{Arc, Mutex};
 
 // --- State for a Single Symbol ---
 #[derive(Debug)]
@@ -33,11 +24,19 @@ pub struct SymbolState {
     pub mtf_analysis: Option<MtfAnalysis>,
     pub tape: TapeMetrics,
     pub last_trade_price: f64,
+    pub cold_start_state: ColdStartState,
+    pub ticks_in_warm_state: u64,
     // PnL Tracking
     pub position: i32,
     pub avg_cost: f64,
     pub realized_pnl: f64,
     pub current_unrealized_pnl: f64,
+}
+
+impl Default for SymbolState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SymbolState {
@@ -48,6 +47,8 @@ impl SymbolState {
             mtf_analysis: None,
             tape: TapeMetrics::default(),
             last_trade_price: 0.0,
+            cold_start_state: ColdStartState::ColdStart,
+            ticks_in_warm_state: 0,
             position: 0,
             avg_cost: 0.0,
             realized_pnl: 0.0,
@@ -81,9 +82,10 @@ pub struct TapeMetrics {
 
 pub struct TapeEngine {
     // Global State
-    pub risk_state: RiskState,
+    pub risk_state: Arc<Mutex<RiskState>>,
     pub regime_state: RegimeState,
     pub guard_evaluator: GuardEvaluator,
+    pub config: TapeConfig,
 
     // Per-Symbol State
     pub symbol_states: HashMap<SymbolId, SymbolState>,
@@ -91,17 +93,21 @@ pub struct TapeEngine {
     // Global PnL Cache
     pub global_realized_pnl: f64,
     pub global_unrealized_pnl: f64,
+
+    pub daily_target_reached: bool,
 }
 
 impl TapeEngine {
-    pub fn new(risk_state: RiskState, guard_config: GuardConfig) -> Self {
+    pub fn new(risk_state: Arc<Mutex<RiskState>>, guard_config: GuardConfig, config: TapeConfig) -> Self {
         Self {
             risk_state,
             regime_state: RegimeState::Normal, // Default
             guard_evaluator: GuardEvaluator::new(guard_config),
+            config,
             symbol_states: HashMap::new(),
             global_realized_pnl: 0.0,
             global_unrealized_pnl: 0.0,
+            daily_target_reached: false,
         }
     }
 
@@ -124,7 +130,11 @@ impl TapeEngine {
     }
 
     pub fn should_terminate(&self) -> bool {
-        self.risk_state.should_terminate()
+        self.risk_state.lock().unwrap().should_terminate()
+    }
+
+    pub fn set_daily_target_reached(&mut self, reached: bool) {
+        self.daily_target_reached = reached;
     }
 
     // --- Event Processing (Fast Loop Interface) ---
@@ -133,7 +143,17 @@ impl TapeEngine {
         self.guard_evaluator.track_event(event.symbol_id, event.ts_src)?;
 
         match event.kind {
-            EventKind::Tick(tick) => self.process_tick(event.symbol_id, event.ts_src, tick),
+            EventKind::Tick(tick) => {
+                 // Convert ts_src (micros) to day ordinal roughly
+                 // This assumes ts_src is system time or close to it.
+                 // For now, we will pass 0 or compute it if needed in check_entry.
+                 // Actually, tape_engine doesn't know "today".
+                 // We should pass today_ordinal into on_event or TapeEngine::new?
+                 // Let's compute it from ts_src for now, assuming ts_src is unix epoch micros
+                 let secs = event.ts_src / 1_000_000;
+                 let days = (secs / 86400) as u32; // Rough approximation (UTC)
+                 self.process_tick(event.symbol_id, event.ts_src, tick, days)
+            },
             EventKind::Snapshot(snap) => {
                 let state = self.get_mut_state(event.symbol_id);
                 state.tape.bid = snap.bid_price;
@@ -144,15 +164,42 @@ impl TapeEngine {
                 Ok(())
             },
             EventKind::Fill(fill) => self.process_fill(event.symbol_id, fill),
+            EventKind::Reconnect => {
+                log::warn!("TapeEngine: Reconnect received — resetting ColdStart for all symbols.");
+                for state in self.symbol_states.values_mut() {
+                    state.cold_start_state = ColdStartState::ColdStart;
+                    state.tape = TapeMetrics::default();
+                }
+                Ok(())
+            }
+            EventKind::StateSync(ref sync) => {
+                log::info!("TapeEngine: StateSync received — reconciling {} positions.",
+                    sync.positions.len());
+                // Reset all positions first
+                for state in self.symbol_states.values_mut() {
+                    state.position = 0;
+                    state.avg_cost = 0.0;
+                    state.current_unrealized_pnl = 0.0;
+                }
+                self.global_unrealized_pnl = 0.0;
+                // Rebuild from broker truth
+                for pos in &sync.positions {
+                    let state = self.symbol_states.entry(pos.symbol_id)
+                        .or_default();
+                    state.position = pos.qty;
+                    state.avg_cost = pos.avg_cost;
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
 
-    fn process_tick(&mut self, symbol: SymbolId, ts_src: u64, tick: TickData) -> Result<(), RejectReason> {
+    fn process_tick(&mut self, symbol: SymbolId, ts_src: u64, tick: TickData, day_ordinal: u32) -> Result<(), RejectReason> {
         // We cannot use get_mut_state directly because we need to update global pnl
         // which requires mutable self.
 
-        let state = self.symbol_states.entry(symbol).or_insert_with(SymbolState::new);
+        let state = self.symbol_states.entry(symbol).or_default();
         state.tape.price = tick.price;
         state.last_trade_price = tick.price; // Simplified for now
 
@@ -164,14 +211,14 @@ impl TapeEngine {
 
             // Update Global
             self.global_unrealized_pnl += delta;
-            self.risk_state.update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+            self.risk_state.lock().unwrap().update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
         }
 
-        self.evaluate_entry_logic(symbol, ts_src)
+        self.evaluate_entry_logic(symbol, ts_src, day_ordinal)
     }
 
     fn process_fill(&mut self, symbol: SymbolId, fill: core_types::FillData) -> Result<(), RejectReason> {
-        let state = self.symbol_states.entry(symbol).or_insert_with(SymbolState::new);
+        let state = self.symbol_states.entry(symbol).or_default();
 
         let fill_size = fill.size as i32;
         let signed_fill_size = if fill.side == core_types::Side::Bid { fill_size } else { -fill_size };
@@ -227,13 +274,35 @@ impl TapeEngine {
         state.current_unrealized_pnl = new_unrealized;
         self.global_unrealized_pnl += delta_unrealized;
 
-        self.risk_state.update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+        self.risk_state.lock().unwrap().update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
 
         Ok(())
     }
 
+    pub fn update_cold_start(&mut self, symbol: SymbolId, is_surge: bool) {
+        let state = self.get_mut_state(symbol);
+        if is_surge {
+            state.cold_start_state = ColdStartState::FullActive;
+            return;
+        }
+
+        match state.cold_start_state {
+            ColdStartState::ColdStart => {
+                state.cold_start_state = ColdStartState::WarmActive;
+                state.ticks_in_warm_state = 0;
+            },
+            ColdStartState::WarmActive => {
+                state.ticks_in_warm_state += 1;
+                if state.ticks_in_warm_state >= 100 {
+                    state.cold_start_state = ColdStartState::FullActive;
+                }
+            },
+            ColdStartState::FullActive => {}
+        }
+    }
+
     /// The 12-Step Locked Decision Pipeline
-    pub fn evaluate_entry_logic(&mut self, symbol: SymbolId, ts_src: u64) -> Result<(), RejectReason> {
+    pub fn evaluate_entry_logic(&mut self, symbol: SymbolId, ts_src: u64, day_ordinal: u32) -> Result<(), RejectReason> {
         let state = self.symbol_states.get(&symbol).expect("Symbol state should exist");
 
         // 0. Pre-Gate: Tier A Only (User Requirement)
@@ -245,15 +314,19 @@ impl TapeEngine {
         // Pass open positions to check_entry for exposure validation
         // In simulation, we need a list of open symbols.
         // We can iterate symbol_states where position != 0
-        let open_symbols: Vec<SymbolId> = self.symbol_states
-            .iter()
-            .filter(|(_, state)| state.position != 0)
-            .map(|(id, _)| *id)
-            .collect();
-
-        if self.risk_state.check_entry(symbol, &open_symbols).is_err() {
-            return Err(RejectReason::Blocklist);
+        let mut open_symbols_buf = [SymbolId(0u32); 2];
+        let mut open_count = 0usize;
+        for (id, state) in &self.symbol_states {
+            if state.position != 0 {
+                if open_count < 2 {
+                    open_symbols_buf[open_count] = *id;
+                }
+                open_count += 1;
+            }
         }
+        let open_symbols = &open_symbols_buf[..open_count.min(2)];
+
+        self.risk_state.lock().unwrap().check_entry(symbol, open_symbols, day_ordinal)?;
 
         // 2. Corporate Actions Gate (Covered by check_entry)
 
@@ -266,14 +339,12 @@ impl TapeEngine {
             None => (0, 0.0)
         };
 
-        if let Err(e) = self.risk_state.check_liquidity(
+        self.risk_state.lock().unwrap().check_liquidity(
             state.tape.price,
             state.tape.spread_cents / state.tape.price, // spread pct
             adv,
             addv_usd
-        ) {
-            return Err(e);
-        }
+        )?;
 
         // 5. Regime Gate (Normal Only)
         if self.regime_state != RegimeState::Normal {
@@ -322,7 +393,20 @@ impl TapeEngine {
             return Err(RejectReason::TapeReversal);
         }
         let scores = self.calculate_scores(&state.tape);
-        if scores.total_score < TAPESCORE_THRESHOLD {
+
+        let threshold = match state.tier {
+            Tier::A => {
+                match state.cold_start_state {
+                    ColdStartState::WarmActive => self.config.tape_threshold_warm,
+                    ColdStartState::FullActive if self.daily_target_reached => self.config.tape_threshold_post_target,
+                    ColdStartState::FullActive => self.config.tape_threshold_normal,
+                    ColdStartState::ColdStart => return Err(RejectReason::TapeScoreLow),
+                }
+            }
+            _ => return Err(RejectReason::Blocklist),
+        };
+
+        if scores.total_score < threshold {
             return Err(RejectReason::TapeScoreLow);
         }
 
@@ -332,7 +416,7 @@ impl TapeEngine {
         }
 
         // 12. Exposure / Correlation Check
-        if !self.check_exposure(symbol) {
+        if !self.check_exposure(symbol, open_symbols) {
             return Err(RejectReason::Exposure);
         }
 
@@ -340,13 +424,13 @@ impl TapeEngine {
     }
 
     fn get_mut_state(&mut self, symbol: SymbolId) -> &mut SymbolState {
-        self.symbol_states.entry(symbol).or_insert_with(SymbolState::new)
+        self.symbol_states.entry(symbol).or_default()
     }
 
     pub fn calculate_scores(&self, tape: &TapeMetrics) -> TapeComponentScores {
-        let r_score = tape.rate_ticks_per_sec.min(100.0).max(0.0);
-        let a_score = (tape.aggressive_buy_ratio * 100.0).min(100.0).max(0.0);
-        let lp_score = tape.large_print_score.min(100.0).max(0.0);
+        let r_score = tape.rate_ticks_per_sec.clamp(0.0, 100.0);
+        let a_score = (tape.aggressive_buy_ratio * 100.0).clamp(0.0, 100.0);
+        let lp_score = tape.large_print_score.clamp(0.0, 100.0);
 
         let spr_score = if tape.spread_cents <= 0.01 {
             100.0
@@ -354,15 +438,15 @@ impl TapeEngine {
              (100.0 - (tape.spread_cents - 0.01) * 2000.0).max(0.0)
         };
 
-        let abs_score = tape.absorption_score.min(100.0).max(0.0);
-        let bls_score = tape.buy_limit_support_score.min(100.0).max(0.0);
+        let abs_score = tape.absorption_score.clamp(0.0, 100.0);
+        let bls_score = tape.buy_limit_support_score.clamp(0.0, 100.0);
 
-        let total = (r_score * W_R) +
-                    (a_score * W_A) +
-                    (lp_score * W_LP) +
-                    (spr_score * W_SPR) +
-                    (abs_score * W_ABS) +
-                    (bls_score * W_BLS);
+        let total = (r_score * self.config.weights.w_r) +
+                    (a_score * self.config.weights.w_a) +
+                    (lp_score * self.config.weights.w_lp) +
+                    (spr_score * self.config.weights.w_spr) +
+                    (abs_score * self.config.weights.w_abs) +
+                    (bls_score * self.config.weights.w_bls);
 
         TapeComponentScores {
             r_score,
@@ -378,10 +462,11 @@ impl TapeEngine {
     fn check_anti_chase(&self, state: &SymbolState) -> bool {
         // Simple logic: If price is > VWAP + 2 * ATR, consider it extended/chasing.
         // Assuming ATR and VWAP are populated.
-        if state.tape.vwap > 0.0 && state.tape.atr > 0.0 {
-            if state.tape.price > state.tape.vwap + (2.0 * state.tape.atr) {
-                return true;
-            }
+        if state.tape.vwap > 0.0
+            && state.tape.atr > 0.0
+            && state.tape.price > state.tape.vwap + (2.0 * state.tape.atr)
+        {
+            return true;
         }
         false
     }
@@ -391,13 +476,10 @@ impl TapeEngine {
         if scores.total_score > 72.0 { 0.10 } else { -0.10 }
     }
 
-    fn check_exposure(&self, _symbol: SymbolId) -> bool {
-        // Check RiskState positions
-        // Default max positions = 3 (example)
-        if self.risk_state.open_positions >= 3 {
-             return false;
-        }
-        true
+    fn check_exposure(&self, symbol: SymbolId, open_symbols: &[SymbolId]) -> bool {
+        self.risk_state.lock().unwrap().exposure_validator
+            .check_new_position(symbol, open_symbols)
+            .is_ok()
     }
 }
 
@@ -407,9 +489,18 @@ mod tests {
     use core_types::LiquidityConfig;
 
     fn default_engine() -> TapeEngine {
+        let config = TapeConfig {
+            tape_threshold_normal: 72.0,
+            tape_threshold_post_target: 82.0,
+            tape_threshold_warm: 67.0,
+            weights: core_types::config::TapeWeights {
+                w_r: 0.30, w_a: 0.22, w_lp: 0.22, w_spr: 0.13, w_abs: 0.08, w_bls: 0.05
+            }
+        };
         TapeEngine::new(
-            RiskState::new(1000.0, LiquidityConfig::default()),
-            GuardConfig::default()
+            Arc::new(Mutex::new(RiskState::new(1000.0, LiquidityConfig::default()))),
+            GuardConfig::default(),
+            config
         )
     }
 
@@ -429,6 +520,8 @@ mod tests {
         // For AntiChase
         state.tape.vwap = 10.0;
         state.tape.atr = 0.10;
+        // For threshold
+        state.cold_start_state = ColdStartState::FullActive;
     }
 
     #[test]
@@ -438,14 +531,14 @@ mod tests {
 
         // Tier C (default) -> Blocklist (Reject)
         set_valid_tape(&mut engine, sym); // Init with valid price/liquidity
-        let res = engine.evaluate_entry_logic(sym, 1000);
+        let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert_eq!(res, Err(RejectReason::Blocklist)); // Tier Check
 
         // Promote to Tier A
         engine.update_tier(sym, Tier::A);
         // Fail on Context (None) because we haven't set it yet.
         // This causes Liquidity check (Step 4) to fail because ADV=0.
-        let res = engine.evaluate_entry_logic(sym, 1000);
+        let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert_eq!(res, Err(RejectReason::Liquidity));
     }
 
@@ -465,7 +558,7 @@ mod tests {
 
         // Regime RiskOff
         engine.update_regime(RegimeState::RiskOff);
-        let res = engine.evaluate_entry_logic(sym, 1000);
+        let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert_eq!(res, Err(RejectReason::Regime));
     }
 
@@ -500,6 +593,7 @@ mod tests {
         state.tape.bid_size = 500;
         state.tape.ask_size = 500;
         state.tape.volume = 600_000;
+        state.cold_start_state = ColdStartState::FullActive;
 
         // Scoring
         state.tape.rate_ticks_per_sec = 100.0;
@@ -510,7 +604,7 @@ mod tests {
         // Guards
         // Spread 0.02 (OK), Imb 0.0 (OK), etc.
 
-        let res = engine.evaluate_entry_logic(sym, 1000);
+        let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert!(res.is_ok(), "Expected Ok, got {:?}", res);
     }
 
@@ -554,7 +648,7 @@ mod tests {
             mtf_pass: false,
         });
 
-        let res = engine.evaluate_entry_logic(sym, 1000);
+        let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert_eq!(res, Err(RejectReason::MtfVeto));
     }
 
@@ -582,7 +676,7 @@ mod tests {
         state.tape.bid_size = 500;
         state.tape.ask_size = 500;
 
-        let res = engine.evaluate_entry_logic(sym, 1000);
+        let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert_eq!(res, Err(RejectReason::GuardSpread));
     }
 
@@ -608,7 +702,7 @@ mod tests {
         state.tape.large_print_score = 0.0;
         state.tape.spread_cents = 0.02; // Valid spread contributes some score (approx 26 pts), but threshold is 72.
 
-        let res = engine.evaluate_entry_logic(sym, 1000);
+        let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert_eq!(res, Err(RejectReason::TapeScoreLow));
     }
 }

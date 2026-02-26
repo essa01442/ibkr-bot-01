@@ -3,7 +3,7 @@
 //! Manages communication channels between different parts of the system.
 //! Defines the topology of the application's task graph.
 
-use core_types::Event;
+use core_types::{Event, OrderRequest};
 use tokio::sync::mpsc;
 
 /// Configuration for channel sizes.
@@ -59,6 +59,10 @@ pub struct SystemChannels {
     // DataRouter -> Risk (if Risk needs direct feed)
     pub risk_tx: mpsc::Sender<Event>,
     pub risk_rx: mpsc::Receiver<Event>,
+
+    // FastLoop -> OMS (Order Requests)
+    pub oms_order_tx: mpsc::Sender<OrderRequest>,
+    pub oms_order_rx: mpsc::Receiver<OrderRequest>,
 }
 
 impl SystemChannels {
@@ -69,6 +73,7 @@ impl SystemChannels {
         let (oms_market_tx, oms_market_rx) = mpsc::channel(config.oms_size);
         let (metrics_tx, metrics_rx) = mpsc::channel(config.metrics_size);
         let (risk_tx, risk_rx) = mpsc::channel(config.risk_size);
+        let (oms_order_tx, oms_order_rx) = mpsc::channel(256);
 
         Self {
             bridge_tx,
@@ -83,6 +88,8 @@ impl SystemChannels {
             metrics_rx,
             risk_tx,
             risk_rx,
+            oms_order_tx,
+            oms_order_rx,
         }
     }
 }

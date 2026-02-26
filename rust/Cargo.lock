@@ -446,6 +446,7 @@ dependencies = [
  "arc-swap",
  "core_types",
  "serde",
+ "core_types",
 ]
 
 [[package]]

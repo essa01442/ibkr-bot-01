@@ -5,6 +5,7 @@ members = [
     "bins/rpsd",
     "crates/app_runtime",
     "crates/bridge_rx",
+    "crates/context_engine",
     "crates/core_types",
     "crates/event_bus",
     "crates/execution_engine",

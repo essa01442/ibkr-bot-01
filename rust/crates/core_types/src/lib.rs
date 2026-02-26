@@ -109,6 +109,37 @@ pub enum DataQuality {
     Halted = 2,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ContextState {
+    Undetermined = 0,
+    Play = 1,
+    NoPlay = 2,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectorMomentum {
+    pub etf_symbol: String,
+    pub change_pct: f64,
+    pub is_favorable: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VolumeProfile {
+    pub current_volume: u64,
+    pub avg_20d_volume: u64,
+    pub is_surge: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DailyContext {
+    pub symbol_id: SymbolId,
+    pub state: ContextState,
+    pub volume_profile: VolumeProfile,
+    pub has_news: bool,
+    pub sector_momentum: Option<SectorMomentum>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Event {

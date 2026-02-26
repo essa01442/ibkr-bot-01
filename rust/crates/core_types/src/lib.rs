@@ -93,6 +93,22 @@ impl Default for LiquidityConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum RegimeState {
+    Normal = 0,
+    Caution = 1,
+    RiskOff = 2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum DataQuality {
+    Ok = 0,
+    Degraded = 1,
+    Halted = 2,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Event {

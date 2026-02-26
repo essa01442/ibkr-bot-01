@@ -1,0 +1,8 @@
+[package]
+name = "event_bus"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true, features = ["sync"] }
+core_types = { path = "../core_types" }

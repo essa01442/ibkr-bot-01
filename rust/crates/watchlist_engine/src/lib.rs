@@ -13,19 +13,13 @@ pub struct WatchlistSnapshot {
     // Add more fields as needed for FastLoop to read
 }
 
-//!
-//! This logic runs outside the FastLoop.
-
-use core_types::SymbolId;
-use std::collections::HashMap;
+pub struct TierData {
+    // metadata for slow analysis
+}
 
 pub struct Watchlist {
     pub tier_a: HashMap<SymbolId, TierData>,
     pub tier_b: HashMap<SymbolId, TierData>,
-}
-
-pub struct TierData {
-    // metadata for slow analysis
 }
 
 impl Watchlist {

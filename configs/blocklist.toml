@@ -1,0 +1,11 @@
+# Symbol Blocklist — §29
+# Updated dynamically by the bot. Manual entries also allowed.
+# Fields: symbol (string ticker), reason, date_added, expiry (optional, ISO date), auto_added
+
+[[symbols]]
+# Example entry — remove before production
+symbol     = "EXAMPLE"
+reason     = "Placeholder — delete before live trading"
+date_added = "2026-01-01"
+expiry     = "2026-06-01"
+auto_added = false

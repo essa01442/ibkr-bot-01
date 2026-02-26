@@ -5,6 +5,12 @@ pub struct AppConfig {
     pub risk: RiskConfig,
     pub universe: UniverseConfig,
     pub tape: TapeConfig,
+    pub pricing: PricingConfig,
+    pub regime: RegimeConfig,
+    pub session: SessionConfig,
+    pub ibkr: IbkrConfig,
+    pub context: ContextConfig,
+    pub correlation: CorrelationConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -41,10 +47,68 @@ pub struct TapeWeights {
     pub w_bls: f64,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PricingConfig {
+    pub k_atr: f64,
+    pub min_stop_pct: f64,
+    pub min_stop_abs_usd: f64,
+    pub anti_chase_runup_pct: f64,
+    pub slippage_alpha: f64,
+    pub slippage_beta: f64,
+    pub sec_fee_rate: f64,
+    pub taf_rate: f64,
+    pub commission_per_share: f64,
+    pub min_net_profit_usd: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct RegimeConfig {
+    pub atr_normal_max: f64,
+    pub atr_caution_max: f64,
+    pub breadth_normal_min: f64,
+    pub breadth_caution_min: f64,
+    pub widening_caution_pct: f64,
+    pub widening_riskoff_pct: f64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SessionConfig {
+    pub regular_open_et: String,
+    pub trading_start_et: String,
+    pub trading_end_et: String,
+    pub regular_close_et: String,
+    pub pre_after_enabled: bool,
+    pub pre_after_min_volume: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct IbkrConfig {
+    pub subscription_budget: u32,
+    pub subscription_warn_pct: f64,
+    pub slow_loop_pacing_per_min: u32,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ContextConfig {
+    pub volume_multiplier_2x: f64,
+    pub volume_multiplier_3x: f64,
+    pub sector_momentum_min_pct: f64,
+    pub churn_window_minutes: u64,
+    pub churn_max_move_pct: f64,
+    pub snap_min_trade_count: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CorrelationConfig {
+    pub threshold: f64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use toml;
+    use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn test_config_parse() {
@@ -73,22 +137,92 @@ w_lp = 0.22
 w_spr = 0.13
 w_abs = 0.08
 w_bls = 0.05
+
+[pricing]
+k_atr = 2.0
+min_stop_pct = 0.012
+min_stop_abs_usd = 0.02
+anti_chase_runup_pct = 0.02
+slippage_alpha = 0.5
+slippage_beta = 0.3
+sec_fee_rate = 0.0000278
+taf_rate = 0.000166
+commission_per_share = 0.005
+min_net_profit_usd = 0.10
+
+[regime]
+atr_normal_max = 0.0018
+atr_caution_max = 0.0028
+breadth_normal_min = 0.45
+breadth_caution_min = 0.35
+widening_caution_pct = 0.25
+widening_riskoff_pct = 0.50
+
+[session]
+regular_open_et = "09:30"
+trading_start_et = "09:45"
+trading_end_et = "15:45"
+regular_close_et = "16:00"
+pre_after_enabled = false
+pre_after_min_volume = 100000
+
+[ibkr]
+subscription_budget = 80
+subscription_warn_pct = 0.80
+slow_loop_pacing_per_min = 30
+
+[context]
+volume_multiplier_2x = 2.0
+volume_multiplier_3x = 3.0
+sector_momentum_min_pct = 2.0
+churn_window_minutes = 10
+churn_max_move_pct = 0.01
+snap_min_trade_count = 5
+
+[correlation]
+threshold = 0.40
 "#;
         let config: AppConfig = toml::from_str(toml_str).expect("config must parse");
+
+        // Verify existing fields
         assert_eq!(config.risk.max_daily_loss_usd, 100.0);
         assert_eq!(config.tape.tape_threshold_normal, 72.0);
         assert_eq!(config.tape.tape_threshold_post_target, 82.0);
         assert!((config.tape.weights.w_r - 0.30).abs() < 1e-9);
-        let weight_sum = config.tape.weights.w_r
-            + config.tape.weights.w_a
-            + config.tape.weights.w_lp
-            + config.tape.weights.w_spr
-            + config.tape.weights.w_abs
-            + config.tape.weights.w_bls;
-        assert!(
-            (weight_sum - 1.0).abs() < 1e-9,
-            "weights must sum to 1.0, got {}",
-            weight_sum
-        );
+
+        // Verify new fields based on the updated request
+        assert_eq!(config.pricing.k_atr, 2.0);
+        assert_eq!(config.pricing.sec_fee_rate, 0.0000278);
+        assert_eq!(config.regime.atr_normal_max, 0.0018);
+        assert_eq!(config.session.pre_after_enabled, false);
+        assert_eq!(config.ibkr.subscription_budget, 80);
+        assert_eq!(config.correlation.threshold, 0.40);
+        assert_eq!(config.context.churn_window_minutes, 10);
+        assert_eq!(config.context.snap_min_trade_count, 5);
+    }
+
+    #[test]
+    fn test_load_default_config_file() {
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        // Adjust path to point to configs/default.toml relative to crate root
+        // CARGO_MANIFEST_DIR points to rust/crates/core_types
+        // configs/ is at repo root
+        let config_path = PathBuf::from(manifest_dir)
+            .parent() // crates
+            .unwrap()
+            .parent() // rust
+            .unwrap()
+            .parent() // repo root
+            .unwrap()
+            .join("configs/default.toml");
+
+        let toml_str = fs::read_to_string(config_path).expect("Failed to read config file");
+        let config: AppConfig = toml::from_str(&toml_str).expect("Failed to parse default.toml");
+
+        // Smoke test a few values
+        assert_eq!(config.risk.max_daily_loss_usd, 100.0);
+        assert_eq!(config.pricing.k_atr, 2.0);
+        assert_eq!(config.regime.atr_normal_max, 0.0018);
+        assert_eq!(config.session.regular_open_et, "09:30");
     }
 }

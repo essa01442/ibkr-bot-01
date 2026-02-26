@@ -14,3 +14,4 @@ tape_engine = { path = "../tape_engine" }
 risk_engine = { path = "../risk_engine" }
 execution_engine = { path = "../execution_engine" }
 metrics_observability = { path = "../metrics_observability" }
+arc-swap = "1.6"

@@ -10,6 +10,7 @@ members = [
     "crates/event_bus",
     "crates/execution_engine",
     "crates/metrics_observability",
+    "crates/mtf_engine",
     "crates/regime_engine",
     "crates/risk_engine",
     "crates/tape_engine",

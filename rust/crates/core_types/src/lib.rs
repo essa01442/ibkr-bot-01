@@ -141,6 +141,15 @@ pub struct DailyContext {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MtfAnalysis {
+    pub weekly_trend_confirmed: bool,
+    pub daily_resistance_cleared: bool,
+    pub structure_4h_bullish: bool,
+    pub pullback_15m_valid: bool,
+    pub mtf_pass: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Event {
     /// Source timestamp (exchange time) in microseconds.

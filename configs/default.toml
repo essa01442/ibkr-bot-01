@@ -22,3 +22,47 @@ w_lp = 0.22
 w_spr = 0.13
 w_abs = 0.08
 w_bls = 0.05
+
+[pricing]
+k_atr                  = 2.0         # ATR multiplier for StopDistance (§16.1)
+min_stop_pct           = 0.012       # 1.2% of price as MinStopDistance floor (§16.1)
+min_stop_abs_usd       = 0.02        # $0.02 absolute MinStopDistance floor (§16.1)
+anti_chase_runup_pct   = 0.02        # 2% RunUp → AntiChase reject (§15.2)
+slippage_alpha         = 0.5         # Volatility coefficient for slippage model (§18.2)
+slippage_beta          = 0.3         # Market impact coefficient (§18.2)
+sec_fee_rate           = 0.0000278   # SEC fee rate — update every January (§18.1)
+taf_rate               = 0.000166    # TAF rate — update every January (§18.1)
+commission_per_share   = 0.005       # IBKR per-share commission (§18.1)
+min_net_profit_usd     = 0.10        # Minimum ExpectedNet to allow entry (§18.3)
+
+[regime]
+atr_normal_max         = 0.0018      # SPY ATR 1m ≤ 0.18% → Normal (§11)
+atr_caution_max        = 0.0028      # SPY ATR 1m ≤ 0.28% → Caution, else Risk-Off (§11)
+breadth_normal_min     = 0.45        # Market breadth ≥ 45% → Normal (§11)
+breadth_caution_min    = 0.35        # Market breadth ≥ 35% → Caution, else Risk-Off (§11)
+widening_caution_pct   = 0.25        # Spread widening +25% → Caution (§11)
+widening_riskoff_pct   = 0.50        # Spread widening +50% → Risk-Off (§11)
+
+[session]
+regular_open_et        = "09:30"     # Regular session open (§25.1)
+trading_start_et       = "09:45"     # First allowed entry (Open Volatility Window ends) (§25.2)
+trading_end_et         = "15:45"     # Last allowed entry (Closing Volatility Window starts) (§25.2)
+regular_close_et       = "16:00"     # Regular session close (§25.1)
+pre_after_enabled      = false       # Pre/After-Hours trading disabled by default (§25.3)
+pre_after_min_volume   = 100_000     # Minimum volume for Pre/After-Hours if enabled (§25.3)
+
+[ibkr]
+subscription_budget    = 80          # Max concurrent live tick subscriptions (§7.2)
+subscription_warn_pct  = 0.80        # Warn + stop upgrades at 80% of budget (§7.2)
+slow_loop_pacing_per_min = 30        # Max SlowLoop requests/min to IBKR (§7.4)
+
+[context]
+volume_multiplier_2x   = 2.0         # Volume_today ≥ 2× Avg20D → volume condition met (§9.1)
+volume_multiplier_3x   = 3.0         # Volume_today ≥ 3× Avg20D → strong trigger (§9.2)
+sector_momentum_min_pct = 2.0        # Sector ETF must move ≥ 2% (§9.2)
+churn_window_minutes   = 10          # Churning detection window (§9.1)
+churn_max_move_pct     = 0.01        # High–Low < 1% in window → Churning (§9.1)
+snap_min_trade_count   = 5           # Minimum trades in snap_count_20s for Tier A upgrade (§12.4)
+
+[correlation]
+threshold              = 0.40        # Pearson correlation → reject second position (§17.1)

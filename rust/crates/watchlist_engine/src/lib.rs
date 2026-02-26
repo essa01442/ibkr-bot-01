@@ -16,6 +16,7 @@ const MAX_TIER_C: usize = 200;
 // IBKR limit: typically 100 concurrent lines. We reserve some buffer.
 const MAX_TOTAL_SUBSCRIPTIONS: usize = 95;
 const WARM_BUFFER_TICKS: u64 = 100;
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct WatchlistSnapshot {
     pub tier_a_count: usize,
@@ -458,6 +459,113 @@ mod tests {
 
         // Should fail
         assert!(wl.promote(extra).is_err());
+    }
+
+    pub fn total_subscriptions(&self) -> usize {
+        // Assuming Tier A and B consume subscriptions
+        self.tier_a.len() + self.tier_b.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_promotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        // Try promote without ticks
+        assert!(wl.promote(sym).is_err());
+
+        // Add ticks
+        for _ in 0..TICK_READY_THRESHOLD {
+            wl.update_tick_count(sym);
+        }
+
+        // Promote C -> B
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        // Promote B -> A
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::A));
+
+        // Promote A -> Error
+        assert!(wl.promote(sym).is_err());
+    }
+
+    #[test]
+    fn test_demotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        // Fake ticks
+        if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+
+        wl.promote(sym).unwrap(); // B
+        wl.promote(sym).unwrap(); // A
+
+        wl.demote(sym).unwrap(); // B
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        wl.demote(sym).unwrap(); // C
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        wl.demote(sym).unwrap(); // Removed
+        assert_eq!(wl.get_tier(sym), None);
+    }
+
+    #[test]
+    fn test_subscription_limits() {
+        let mut wl = Watchlist::new();
+        // Fill up subscriptions
+        for i in 0..MAX_TOTAL_SUBSCRIPTIONS {
+            let sym = SymbolId(i as u32);
+            wl.add_candidate(sym).unwrap();
+            if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+            wl.promote(sym).unwrap(); // To Tier B
+        }
+
+        let extra = SymbolId(1000);
+        wl.add_candidate(extra).unwrap();
+        if let Some(d) = wl.get_data_mut(extra) { d.tick_count = 100; }
+
+        // Should fail
+        assert!(wl.promote(extra).is_err());
+    }
+
+    #[test]
+    fn test_cold_start_controller() {
+        let mut data = TierData::new(Tier::B);
+        assert_eq!(data.cold_start_state, ColdStartState::ColdStart);
+        assert_eq!(data.acceleration_weight(), 0.0);
+
+        // First update -> WarmActive
+        data.update_cold_start(false);
+        assert_eq!(data.cold_start_state, ColdStartState::WarmActive);
+        assert_eq!(data.acceleration_weight(), 0.5);
+
+        // Update loop until FullActive
+        for _ in 0..WARM_BUFFER_TICKS {
+            data.update_cold_start(false);
+        }
+        assert_eq!(data.cold_start_state, ColdStartState::FullActive);
+        assert_eq!(data.acceleration_weight(), 1.0);
+    }
+
+    #[test]
+    fn test_surge_override() {
+        let mut data = TierData::new(Tier::B);
+        // Surge -> FullActive immediately
+        data.update_cold_start(true);
+        assert_eq!(data.cold_start_state, ColdStartState::FullActive);
+        assert_eq!(data.acceleration_weight(), 1.0);
     }
 
     pub fn total_subscriptions(&self) -> usize {

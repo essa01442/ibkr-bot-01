@@ -55,6 +55,17 @@ pub enum CorporateAction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TapeComponentScores {
+    pub r_score: f64,
+    pub a_score: f64,
+    pub lp_score: f64,
+    pub spr_score: f64,
+    pub abs_score: f64,
+    pub bls_score: f64,
+    pub total_score: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiquidityConfig {
     pub target_price_min: f64,
     pub target_price_max: f64,

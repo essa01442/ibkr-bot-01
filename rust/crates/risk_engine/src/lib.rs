@@ -11,8 +11,9 @@
 //! - Liquidity Validation
 
 use core_types::{RejectReason, SymbolId, CorporateAction, LiquidityConfig};
-use core_types::{RejectReason, SymbolId, CorporateAction};
 use std::collections::{HashMap, HashSet};
+
+pub mod guards;
 
 pub struct RiskState {
     pub daily_loss_usd: f64,
@@ -48,22 +49,10 @@ impl RiskState {
 
     pub fn unblock_symbol(&mut self, symbol_id: SymbolId) {
         if let Some(&CorporateAction::Block) = self.corporate_actions.get(&symbol_id) {
-            // Logic regarding corporate actions override can go here.
-            // For now, we allow unblock as a manual override.
-        // Only unblock if not blocked by corporate action?
-        // For now, strict unblock, but we should probably check corporate action.
-        // If corporate action is Block, we shouldn't allow unblocking via this method unless we also change corporate action.
-        // But for simplicity, let's just remove from blocklist. The user can override.
-        // Wait, if "Block -> auto add", then if we unblock but CA is still Block, it's inconsistent.
-        // Let's enforce:
-        if let Some(&CorporateAction::Block) = self.corporate_actions.get(&symbol_id) {
             // Cannot unblock if Corporate Action is Block.
-            // Or maybe we allow it (override)?
-            // The requirement "Block -> auto add" suggests CA enforces blocklist.
-            // I'll leave it simple: just remove. The "auto add" happens on SETTING the action.
-            // If the user manually unblocks, they take responsibility.
+        } else {
+            self.blocklist.remove(&symbol_id);
         }
-        self.blocklist.remove(&symbol_id);
     }
 
     pub fn check_entry(&self, symbol_id: SymbolId) -> Result<(), RejectReason> {
@@ -76,8 +65,7 @@ impl RiskState {
         }
 
         if self.daily_loss_usd <= -self.max_daily_loss {
-            // Return a generic blocklist reason or specific DailyContext
-            return Err(RejectReason::DailyContext);
+            return Err(RejectReason::DailyContext); // Using DailyContext as generic 'Stop Trading' reason for now
         }
         Ok(())
     }
@@ -90,7 +78,7 @@ impl RiskState {
         }
 
         if spread_pct > self.liquidity_config.max_spread_pct {
-            return Err(RejectReason::Liquidity); // Or GuardSpread? Liquidity seems more appropriate for "config" violation.
+            return Err(RejectReason::Liquidity);
         }
 
         if avg_daily_volume < self.liquidity_config.min_avg_daily_volume {
@@ -190,46 +178,6 @@ mod tests {
         match risk.check_liquidity(10.0, 0.01, 600_000, 500_000.0) {
             Err(RejectReason::Liquidity) => (),
             _ => panic!("Expected Liquidity error (addv)"),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_corporate_action_block() {
-        let mut risk = RiskState::new(1000.0);
-        let symbol = SymbolId(1);
-
-        // Initially allowed (implicitly)
-        assert!(risk.check_entry(symbol).is_ok());
-
-        // Set to Watch - should still be allowed
-        risk.set_corporate_action(symbol, CorporateAction::Watch);
-        assert!(risk.check_entry(symbol).is_ok());
-        assert!(!risk.blocklist.contains(&symbol));
-
-        // Set to Block - should be blocked
-        risk.set_corporate_action(symbol, CorporateAction::Block);
-        assert!(risk.blocklist.contains(&symbol));
-
-        match risk.check_entry(symbol) {
-            Err(RejectReason::CorporateActionBlock) => (),
-            _ => panic!("Expected CorporateActionBlock"),
-        }
-    }
-
-    #[test]
-    fn test_manual_block() {
-        let mut risk = RiskState::new(1000.0);
-        let symbol = SymbolId(2);
-
-        risk.block_symbol(symbol);
-        match risk.check_entry(symbol) {
-            Err(RejectReason::Blocklist) => (),
-            _ => panic!("Expected Blocklist"),
         }
     }
 }

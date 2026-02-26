@@ -133,6 +133,10 @@ impl TapeEngine {
         self.risk_state.lock().unwrap().should_terminate()
     }
 
+    pub fn set_daily_target_reached(&mut self, reached: bool) {
+        self.daily_target_reached = reached;
+    }
+
     // --- Event Processing (Fast Loop Interface) ---
     pub fn on_event(&mut self, event: &Event) -> Result<(), RejectReason> {
         // Track event activity (Flicker check)
@@ -160,6 +164,33 @@ impl TapeEngine {
                 Ok(())
             },
             EventKind::Fill(fill) => self.process_fill(event.symbol_id, fill),
+            EventKind::Reconnect => {
+                log::warn!("TapeEngine: Reconnect received — resetting ColdStart for all symbols.");
+                for state in self.symbol_states.values_mut() {
+                    state.cold_start_state = ColdStartState::ColdStart;
+                    state.tape = TapeMetrics::default();
+                }
+                Ok(())
+            }
+            EventKind::StateSync(ref sync) => {
+                log::info!("TapeEngine: StateSync received — reconciling {} positions.",
+                    sync.positions.len());
+                // Reset all positions first
+                for state in self.symbol_states.values_mut() {
+                    state.position = 0;
+                    state.avg_cost = 0.0;
+                    state.current_unrealized_pnl = 0.0;
+                }
+                self.global_unrealized_pnl = 0.0;
+                // Rebuild from broker truth
+                for pos in &sync.positions {
+                    let state = self.symbol_states.entry(pos.symbol_id)
+                        .or_default();
+                    state.position = pos.qty;
+                    state.avg_cost = pos.avg_cost;
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -283,6 +314,15 @@ impl TapeEngine {
         // Pass open positions to check_entry for exposure validation
         // In simulation, we need a list of open symbols.
         // We can iterate symbol_states where position != 0
+        let mut open_symbols_buf = [SymbolId(0u32); 2];
+        let mut open_count = 0usize;
+        for (id, state) in &self.symbol_states {
+            if state.position != 0 {
+                if open_count < 2 {
+                    open_symbols_buf[open_count] = *id;
+                }
+                open_count += 1;
+            }
         let open_symbols: Vec<SymbolId> = self.symbol_states
             .iter()
             .filter(|(_, state)| state.position != 0)
@@ -292,6 +332,9 @@ impl TapeEngine {
         if self.risk_state.lock().unwrap().check_entry(symbol, &open_symbols, day_ordinal).is_err() {
             return Err(RejectReason::Blocklist);
         }
+        let open_symbols = &open_symbols_buf[..open_count.min(2)];
+
+        self.risk_state.lock().unwrap().check_entry(symbol, open_symbols, day_ordinal)?;
 
         // 2. Corporate Actions Gate (Covered by check_entry)
 
@@ -381,6 +424,7 @@ impl TapeEngine {
         }
 
         // 12. Exposure / Correlation Check
+        if !self.check_exposure(symbol, open_symbols) {
         if !self.check_exposure(symbol, &open_symbols) {
             return Err(RejectReason::Exposure);
         }

@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 core_types = { path = "../core_types" }
 risk_engine = { path = "../risk_engine" }
+log = { workspace = true }

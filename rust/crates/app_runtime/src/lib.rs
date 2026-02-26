@@ -11,11 +11,13 @@ use std::sync::{Arc, Mutex};
 use arc_swap::ArcSwap;
 use watchlist_engine::WatchlistSnapshot;
 use std::path::Path;
+use metrics_observability::{DecisionLog, DecisionAction, LatencyTracker, log_decision, SLA_LIMIT_MICROS};
 use metrics_observability::{DecisionLog, LatencyTracker, log_decision, SLA_LIMIT_MICROS};
 use tokio_util::sync::CancellationToken;
 use std::collections::HashMap;
 use risk_engine::sizing::{PositionSizer, SizingConfig};
 use std::os::unix::fs::PermissionsExt;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const RISK_STATE_PATH: &str = "/var/run/rps/risk_state.json";
 
@@ -35,6 +37,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
     // Shared State: Watchlist Snapshot
     let watchlist_snapshot = Arc::new(ArcSwap::new(Arc::new(WatchlistSnapshot::default())));
+
+    let account_capital = config.risk.account_capital_usd;
 
     // Load Risk State from file or create new
     let risk_state_inner = if Path::new(RISK_STATE_PATH).exists() {
@@ -69,6 +73,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
     let risk_state = Arc::new(Mutex::new(risk_state_inner));
     let shutdown_token = CancellationToken::new();
+    let system_monitor_only = Arc::new(AtomicBool::new(false));
+    let smo_clone = system_monitor_only.clone();
 
     // 1. Spawn Metrics Task
     let mut metrics_rx = channels.metrics_rx;
@@ -113,6 +119,16 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 _ = timeout_check.tick() => {
                     let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;
                     let timeouts = oms.check_timeouts(now, 30_000_000); // 30s timeout
+                    for order_id in &timeouts {
+                        oms.cancel_order(*order_id, now);
+                        log::warn!("Order {} timed out after 30s — marked Cancelled locally. \
+                                    Python bridge must cancel with broker.", order_id);
+                        // TODO: A dedicated Rust→Python cancel command channel is required for production.
+                        // When an order times out, a CancelOrder(broker_order_id) message must be sent to
+                        // the Python bridge, which calls ib.cancelOrder(). This requires adding:
+                        // 1. A new UDS message type: { "type": "cancel", "broker_order_id": "..." }
+                        // 2. A Sender<CancelCommand> passed into OmsTask
+                        // 3. Python UDS receiver loop that handles cancel commands alongside market data
                     if !timeouts.is_empty() {
                         log::warn!("Timed out orders: {:?}", timeouts);
                     }
@@ -159,6 +175,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             realized_pnl: f64,
         }
         let mut positions: HashMap<core_types::SymbolId, RiskPosition> = HashMap::new();
+        let mut intraday_buy_tracker: HashMap<core_types::SymbolId, (u32, bool)> = HashMap::new();
         let mut global_realized_pnl = 0.0;
 
         while let Some(event) = risk_rx.recv().await {
@@ -200,6 +217,16 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                          }
                      }
 
+                     // PDT Logic & T+1 Settlement
+                     let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
+
+                     if fill.side == core_types::Side::Bid {
+                         intraday_buy_tracker.insert(event.symbol_id, (today_ordinal, true));
+                     } else {
+                         // Sell side
+                         // T+1 Settlement
+                         let proceeds = (fill.size as f64) * fill.price;
+                         let settle_date = today_ordinal + 1;
                      // Handle T+1 Settlement Tracking
                      if fill.side == core_types::Side::Ask {
                          // Sell side fill
@@ -211,6 +238,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                          let mut guard = risk_state_clone.lock().unwrap();
                          let current = guard.unsettled_proceeds.get(&settle_date).copied().unwrap_or(0.0);
                          guard.unsettled_proceeds.insert(settle_date, current + proceeds);
+
+                         // PDT Check
+                         if let Some((buy_date, has_buy)) = intraday_buy_tracker.get(&event.symbol_id) {
+                             if *has_buy && *buy_date == today_ordinal {
+                                 guard.pdt_guard.record_day_trade(today_ordinal, event.symbol_id.0);
+                                 // We consumed the buy, so we remove it to avoid double counting?
+                                 // Actually, multiple round trips are multiple day trades.
+                                 // But usually one "day trade" is opening and closing the same position.
+                                 // Conservative: yes, remove it. If they buy again, it's a new potential day trade.
+                                 intraday_buy_tracker.remove(&event.symbol_id);
+                             }
+                         }
                      }
 
                      // Update RiskState PnL
@@ -337,7 +376,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                  let log = DecisionLog {
                     symbol_id: event.symbol_id,
                     timestamp: ts_decision_end,
-                    action: if decision_result.is_ok() { "Enter".to_string() } else { "Reject".to_string() },
+                    action: if decision_result.is_ok() { DecisionAction::Enter } else { DecisionAction::Reject },
                     reject_reason: decision_result.err(),
                     latency_src_rx: event.ts_rx.saturating_sub(event.ts_src),
                     latency_rx_proc: ts_proc_start.saturating_sub(event.ts_rx),
@@ -352,17 +391,24 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                          state.daily_context.as_ref().map(|c| c.volume_profile.avg_20d_volume).unwrap_or(0)
                      } else { 0 };
 
+                     let stop_dist = position_sizer.config.min_stop_distance_cents;
                      let stop_dist = SizingConfig::default().min_stop_distance_cents;
                      let stop_price = tick.price - stop_dist;
 
                      let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
                      let available_cash = if let Ok(guard) = tape_engine.risk_state.lock() {
+                         guard.available_cash(today_ordinal, account_capital)
                          guard.available_cash(today_ordinal, 25_000.0) // Assume 25k base equity for now
                      } else {
                          0.0
                      };
 
                      let qty = position_sizer.calculate_size(
+                         account_capital,
+                         tick.price,
+                         stop_price,
+                         daily_volume,
+                         available_cash
                          available_cash,
                          tick.price,
                          stop_price,
@@ -395,6 +441,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
             // Persist RiskState on Fills (critical updates)
             if let core_types::EventKind::Fill(_) = event.kind {
+                if tape_engine.global_realized_pnl >= 50.0 && !tape_engine.daily_target_reached {
+                    tape_engine.set_daily_target_reached(true);
+                    log::info!("Daily profit target reached (${:.2}). Raising TapeScore threshold to {}.",
+                        tape_engine.global_realized_pnl,
+                        tape_engine.config.tape_threshold_post_target);
+                }
+
                 // Access mutex to save
                 if let Ok(guard) = tape_engine.risk_state.lock() {
                     if let Err(e) = guard.save_to_file(Path::new(RISK_STATE_PATH)) {
@@ -456,6 +509,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     // 7. Spawn BridgeRx Task
     let bridge_tx = channels.bridge_tx;
     let (_dummy_tx, dummy_rx) = mpsc::channel(1);
+    let (degraded_tx, mut degraded_rx) = mpsc::channel::<bool>(8);
 
     let bridge_bus = EventBus {
         tx: bridge_tx,
@@ -463,6 +517,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut bridge_task = bridge_rx::BridgeRxTask::new("/var/run/rps/rps_uds.sock", bridge_bus)?;
+    bridge_task.set_degraded_notifier(degraded_tx);
     task::spawn(async move {
         bridge_task.run().await;
     });
@@ -474,6 +529,20 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         }
         _ = tokio::signal::ctrl_c() => {
             log::info!("Shutdown triggered by Ctrl+C");
+        }
+        Some(is_degraded) = degraded_rx.recv() => {
+            if let Ok(mut guard) = risk_state.lock() {
+                if is_degraded {
+                    guard.set_monitor_only(true);
+                    smo_clone.store(true, Ordering::SeqCst);
+                    log::warn!("DataQuality DEGRADED — entering Monitor Only automatically.");
+                } else if smo_clone.load(Ordering::SeqCst) {
+                    // Only auto-restore if WE set it
+                    guard.set_monitor_only(false);
+                    smo_clone.store(false, Ordering::SeqCst);
+                    log::info!("DataQuality RESTORED — exiting Monitor Only.");
+                }
+            }
         }
     }
 

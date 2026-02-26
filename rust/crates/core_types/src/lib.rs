@@ -96,6 +96,7 @@ pub enum RejectReason {
     TapeReversal = 17,
     MonitorOnly = 18,
     MaxDailyLoss = 19,
+    PdtViolation = 20,
     Unknown = 255,
 }
 

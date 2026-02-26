@@ -31,7 +31,7 @@ impl Default for SizingConfig {
 }
 
 pub struct PositionSizer {
-    config: SizingConfig,
+    pub config: SizingConfig,
 }
 
 impl PositionSizer {
@@ -51,10 +51,12 @@ impl PositionSizer {
     /// Number of shares to trade (u32).
     pub fn calculate_size(
         &self,
+        _account_balance: f64,
         available_cash: f64,
         entry_price: f64,
         stop_price: f64,
         daily_volume: u64,
+        available_cash: f64,
     ) -> u32 {
         if entry_price <= 0.0 || stop_price <= 0.0 || entry_price <= stop_price {
             return 0;
@@ -106,7 +108,7 @@ mod tests {
         let sizer = PositionSizer::new(config);
 
         // Entry 10.00, Stop 9.90 -> Dist 0.10. Risk 100. Shares = 1000.
-        let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 1_000_000);
+        let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 1_000_000, 100_000.0);
         assert_eq!(shares, 1000);
     }
 
@@ -123,7 +125,7 @@ mod tests {
 
         // Entry 10.00, Stop 9.95 -> Raw Dist 0.05. Used Dist 0.10.
         // Shares = 100 / 0.10 = 1000 (instead of 2000)
-        let shares = sizer.calculate_size(100_000.0, 10.00, 9.95, 1_000_000);
+        let shares = sizer.calculate_size(100_000.0, 10.00, 9.95, 1_000_000, 100_000.0);
         assert_eq!(shares, 1000);
     }
 
@@ -140,7 +142,7 @@ mod tests {
 
         // Entry 10.00. Budget Cap -> 500 shares.
         // Risk would allow: 1000 / 0.10 = 10000 shares.
-        let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 1_000_000);
+        let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 1_000_000, 100_000.0);
         assert_eq!(shares, 500);
     }
 
@@ -157,7 +159,7 @@ mod tests {
 
         // Balance 50,000. Max Pos = 5,000.
         // Entry 10.00. Shares = 500.
-        let shares = sizer.calculate_size(50_000.0, 10.00, 9.90, 1_000_000);
+        let shares = sizer.calculate_size(50_000.0, 10.00, 9.90, 1_000_000, 50_000.0);
         assert_eq!(shares, 500);
     }
 
@@ -173,7 +175,7 @@ mod tests {
         let sizer = PositionSizer::new(config);
 
         // Volume 50,000. Cap = 500 shares.
-        let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 50_000);
+        let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 50_000, 100_000.0);
         assert_eq!(shares, 500);
     }
 }

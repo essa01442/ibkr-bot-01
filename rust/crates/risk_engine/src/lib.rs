@@ -258,6 +258,10 @@ mod tests {
         risk.update_pnl(-50.0);
         assert!(risk.check_entry(symbol, &[]).is_ok());
 
+
+        risk.update_pnl(-50.0);
+        assert!(risk.check_entry(symbol, &[]).is_ok());
+
         risk.update_pnl(-100.0);
         match risk.check_entry(symbol, &[]) {
             Err(RejectReason::MaxDailyLoss) => (),

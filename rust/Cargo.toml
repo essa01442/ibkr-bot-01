@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "bins/rpsd",
+    "crates/app_runtime",
+    "crates/bridge_rx",
+    "crates/core_types",
+    "crates/event_bus",
+    "crates/execution_engine",
+    "crates/metrics_observability",
+    "crates/risk_engine",
+    "crates/tape_engine",
+    "crates/watchlist_engine",
+]
+
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "1.0"
+log = "0.4"
+# Add other dependencies here

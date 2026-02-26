@@ -13,9 +13,7 @@ pub struct MtfParams {
 
 impl Default for MtfParams {
     fn default() -> Self {
-        Self {
-            require_all: true,
-        }
+        Self { require_all: true }
     }
 }
 
@@ -76,16 +74,24 @@ impl MtfEngine {
 
         // Daily Resistance: Cleared if price > resistance
         let daily_resistance_cleared = if self.daily_resistance < f64::MAX {
-             self.current_price > self.daily_resistance
+            self.current_price > self.daily_resistance
         } else {
             false // No resistance data
         };
 
         let mut score = 0;
-        if weekly_trend_confirmed { score += 1; }
-        if daily_resistance_cleared { score += 1; }
-        if self.structure_4h_bullish { score += 1; }
-        if self.pullback_15m_valid { score += 1; }
+        if weekly_trend_confirmed {
+            score += 1;
+        }
+        if daily_resistance_cleared {
+            score += 1;
+        }
+        if self.structure_4h_bullish {
+            score += 1;
+        }
+        if self.pullback_15m_valid {
+            score += 1;
+        }
 
         let mtf_pass = if self.params.require_all {
             score == 4

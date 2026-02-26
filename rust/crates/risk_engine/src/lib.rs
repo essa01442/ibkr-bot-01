@@ -10,17 +10,17 @@
 //! - PDT Rules
 //! - Liquidity Validation
 
-use core_types::{RejectReason, SymbolId, CorporateAction, LiquidityConfig};
-use std::collections::{HashMap, HashSet};
+use core_types::{CorporateAction, LiquidityConfig, RejectReason, SymbolId};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
+use std::path::Path;
 
-pub mod guards;
-pub mod sizing;
 pub mod exposure;
+pub mod guards;
 pub mod pdt;
+pub mod sizing;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RiskLadderStep {
@@ -69,7 +69,11 @@ impl RiskState {
     pub fn set_risk_ladder(&mut self, ladder: Vec<RiskLadderStep>) {
         self.risk_ladder = ladder;
         // Sort by profit threshold just in case
-        self.risk_ladder.sort_by(|a, b| a.profit_threshold.partial_cmp(&b.profit_threshold).unwrap_or(std::cmp::Ordering::Equal));
+        self.risk_ladder.sort_by(|a, b| {
+            a.profit_threshold
+                .partial_cmp(&b.profit_threshold)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         self.update_risk_limits();
     }
 
@@ -118,7 +122,12 @@ impl RiskState {
         self.monitor_only = monitor_only;
     }
 
-    pub fn check_entry(&self, symbol_id: SymbolId, open_symbols: &[SymbolId], today_ordinal: u32) -> Result<(), RejectReason> {
+    pub fn check_entry(
+        &self,
+        symbol_id: SymbolId,
+        open_symbols: &[SymbolId],
+        today_ordinal: u32,
+    ) -> Result<(), RejectReason> {
         if self.monitor_only {
             return Err(RejectReason::MonitorOnly);
         }
@@ -137,16 +146,16 @@ impl RiskState {
 
         // Check PDT
         if self.pdt_guard.would_violate(today_ordinal) {
-             // We don't have a specific RejectReason for PDT in core_types yet, using Blocklist/Unknown or defining new
-             // Assuming Blocklist for now or adding PDT in core_types later.
-             // Given instructions: "RejectReason::Blocklist" is closest existing, but let's see.
-             // Spec doesn't strictly define new Enum variant.
-             return Err(RejectReason::PdtViolation);
-             return Err(RejectReason::Blocklist);
+            // We don't have a specific RejectReason for PDT in core_types yet, using Blocklist/Unknown or defining new
+            // Assuming Blocklist for now or adding PDT in core_types later.
+            // Given instructions: "RejectReason::Blocklist" is closest existing, but let's see.
+            // Spec doesn't strictly define new Enum variant.
+            return Err(RejectReason::PdtViolation);
         }
 
         // Check Exposure
-        self.exposure_validator.check_new_position(symbol_id, open_symbols)?;
+        self.exposure_validator
+            .check_new_position(symbol_id, open_symbols)?;
 
         Ok(())
     }
@@ -160,8 +169,16 @@ impl RiskState {
 
     /// Validates if the trade parameters meet liquidity requirements.
     /// This is typically called with current market data snapshot values.
-    pub fn check_liquidity(&self, price: f64, spread_pct: f64, avg_daily_volume: u64, addv_usd: f64) -> Result<(), RejectReason> {
-        if price < self.liquidity_config.target_price_min || price > self.liquidity_config.target_price_max {
+    pub fn check_liquidity(
+        &self,
+        price: f64,
+        spread_pct: f64,
+        avg_daily_volume: u64,
+        addv_usd: f64,
+    ) -> Result<(), RejectReason> {
+        if price < self.liquidity_config.target_price_min
+            || price > self.liquidity_config.target_price_max
+        {
             return Err(RejectReason::PriceRange);
         }
 
@@ -170,11 +187,11 @@ impl RiskState {
         }
 
         if avg_daily_volume < self.liquidity_config.min_avg_daily_volume {
-             return Err(RejectReason::Liquidity);
+            return Err(RejectReason::Liquidity);
         }
 
         if addv_usd < self.liquidity_config.min_addv_usd {
-             return Err(RejectReason::Liquidity);
+            return Err(RejectReason::Liquidity);
         }
 
         Ok(())
@@ -193,7 +210,9 @@ impl RiskState {
     }
 
     pub fn available_cash(&self, today_ordinal: u32, total_cash: f64) -> f64 {
-        let locked: f64 = self.unsettled_proceeds.iter()
+        let locked: f64 = self
+            .unsettled_proceeds
+            .iter()
             .filter(|(&settle_date, _)| settle_date > today_ordinal)
             .map(|(_, &amt)| amt)
             .sum();
@@ -284,7 +303,6 @@ mod tests {
         risk.update_pnl(-50.0);
         assert!(risk.check_entry(symbol, &[], 0).is_ok());
 
-
         risk.update_pnl(-50.0);
         assert!(risk.check_entry(symbol, &[], 0).is_ok());
 
@@ -306,14 +324,23 @@ mod tests {
     #[test]
     fn test_risk_ladder() {
         let mut risk = default_risk_state(); // Max loss 100
-        // Ladder:
-        // At 50 profit, max loss becomes 50 (stop at -50).
-        // At 100 profit, max loss becomes 0 (stop at 0).
-        // At 200 profit, max loss becomes -50 (stop at +50).
+                                             // Ladder:
+                                             // At 50 profit, max loss becomes 50 (stop at -50).
+                                             // At 100 profit, max loss becomes 0 (stop at 0).
+                                             // At 200 profit, max loss becomes -50 (stop at +50).
         let ladder = vec![
-            RiskLadderStep { profit_threshold: 50.0, max_daily_loss: 50.0 },
-            RiskLadderStep { profit_threshold: 100.0, max_daily_loss: 0.0 },
-            RiskLadderStep { profit_threshold: 200.0, max_daily_loss: -50.0 },
+            RiskLadderStep {
+                profit_threshold: 50.0,
+                max_daily_loss: 50.0,
+            },
+            RiskLadderStep {
+                profit_threshold: 100.0,
+                max_daily_loss: 0.0,
+            },
+            RiskLadderStep {
+                profit_threshold: 200.0,
+                max_daily_loss: -50.0,
+            },
         ];
         risk.set_risk_ladder(ladder);
 
@@ -361,7 +388,10 @@ mod tests {
         let mut risk = default_risk_state();
         risk.update_pnl(123.45);
         risk.set_monitor_only(true);
-        let ladder = vec![RiskLadderStep { profit_threshold: 100.0, max_daily_loss: 50.0 }];
+        let ladder = vec![RiskLadderStep {
+            profit_threshold: 100.0,
+            max_daily_loss: 50.0,
+        }];
         risk.set_risk_ladder(ladder);
 
         let file = NamedTempFile::new().unwrap();

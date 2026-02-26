@@ -24,7 +24,7 @@ impl Default for SizingConfig {
             risk_per_trade_usd: 50.0,
             min_stop_distance_cents: 0.05,
             max_position_pct_nav: 0.10, // 10%
-            liquidity_cap_pct: 0.01, // 1%
+            liquidity_cap_pct: 0.01,    // 1%
             budget_cap_usd: 5000.0,
         }
     }
@@ -46,13 +46,13 @@ impl PositionSizer {
     /// * `entry_price` - Planned entry price.
     /// * `stop_price` - Planned stop loss price.
     /// * `daily_volume` - Average Daily Volume (shares) or available liquidity metric.
+    /// * `available_cash` - Buying power currently available.
     ///
     /// # Returns
     /// Number of shares to trade (u32).
     pub fn calculate_size(
         &self,
-        _account_balance: f64,
-        available_cash: f64,
+        account_balance: f64,
         entry_price: f64,
         stop_price: f64,
         daily_volume: u64,
@@ -76,10 +76,15 @@ impl PositionSizer {
         let budget_cap_shares = self.config.budget_cap_usd / entry_price;
 
         // Cap 2: % of NAV (Available Cash is proxy for NAV/Buying Power here)
-        let nav_cap_usd = available_cash * self.config.max_position_pct_nav;
+        // Ensure we don't exceed max_position_pct_nav of TOTAL account balance
+        // And also don't exceed available cash
+        let nav_cap_usd = account_balance * self.config.max_position_pct_nav;
         let nav_cap_shares = nav_cap_usd / entry_price;
 
-        let budget_shares = budget_cap_shares.min(nav_cap_shares);
+        // Also capped by absolute available cash
+        let cash_cap_shares = available_cash / entry_price;
+
+        let budget_shares = budget_cap_shares.min(nav_cap_shares).min(cash_cap_shares);
 
         // 4. Liquidity-Based Size (Liquidity cap)
         // Cap to % of daily volume
@@ -102,12 +107,13 @@ mod tests {
             risk_per_trade_usd: 100.0,
             min_stop_distance_cents: 0.05,
             max_position_pct_nav: 1.0, // High cap
-            liquidity_cap_pct: 1.0, // High cap
+            liquidity_cap_pct: 1.0,    // High cap
             budget_cap_usd: 1_000_000.0,
         };
         let sizer = PositionSizer::new(config);
 
         // Entry 10.00, Stop 9.90 -> Dist 0.10. Risk 100. Shares = 1000.
+        // Account 100k, Cash 100k
         let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 1_000_000, 100_000.0);
         assert_eq!(shares, 1000);
     }

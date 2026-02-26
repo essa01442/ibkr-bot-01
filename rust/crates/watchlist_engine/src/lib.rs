@@ -3,9 +3,9 @@
 //! Manages the tiered watchlist system (Tier A, Tier B, Tier C).
 //! Handles pacing, upgrades, downgrades, and slow-moving context analysis (MTF, Correlation).
 
-use core_types::{SymbolId, Tier, SubscriptionStatus, ColdStartState};
+use core_types::{ColdStartState, SubscriptionStatus, SymbolId, Tier};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 // Configuration constants
 const TICK_READY_THRESHOLD: u64 = 50;
@@ -57,13 +57,13 @@ impl TierData {
                 // Transition to WarmActive on first tick/update
                 self.cold_start_state = ColdStartState::WarmActive;
                 self.ticks_in_warm_state = 0;
-            },
+            }
             ColdStartState::WarmActive => {
                 self.ticks_in_warm_state += 1;
                 if self.ticks_in_warm_state >= WARM_BUFFER_TICKS {
                     self.cold_start_state = ColdStartState::FullActive;
                 }
-            },
+            }
             ColdStartState::FullActive => {
                 // Already fully active
             }
@@ -110,24 +110,41 @@ impl Watchlist {
     }
 
     pub fn get_tier(&self, symbol_id: SymbolId) -> Option<Tier> {
-        if self.tier_a.contains_key(&symbol_id) { Some(Tier::A) }
-        else if self.tier_b.contains_key(&symbol_id) { Some(Tier::B) }
-        else if self.tier_c.contains_key(&symbol_id) { Some(Tier::C) }
-        else { None }
+        if self.tier_a.contains_key(&symbol_id) {
+            Some(Tier::A)
+        } else if self.tier_b.contains_key(&symbol_id) {
+            Some(Tier::B)
+        } else if self.tier_c.contains_key(&symbol_id) {
+            Some(Tier::C)
+        } else {
+            None
+        }
     }
 
     pub fn get_data(&self, symbol_id: SymbolId) -> Option<&TierData> {
-        if let Some(d) = self.tier_a.get(&symbol_id) { return Some(d); }
-        if let Some(d) = self.tier_b.get(&symbol_id) { return Some(d); }
-        if let Some(d) = self.tier_c.get(&symbol_id) { return Some(d); }
+        if let Some(d) = self.tier_a.get(&symbol_id) {
+            return Some(d);
+        }
+        if let Some(d) = self.tier_b.get(&symbol_id) {
+            return Some(d);
+        }
+        if let Some(d) = self.tier_c.get(&symbol_id) {
+            return Some(d);
+        }
         None
     }
 
     pub fn get_data_mut(&mut self, symbol_id: SymbolId) -> Option<&mut TierData> {
-         if let Some(d) = self.tier_a.get_mut(&symbol_id) { return Some(d); }
-         if let Some(d) = self.tier_b.get_mut(&symbol_id) { return Some(d); }
-         if let Some(d) = self.tier_c.get_mut(&symbol_id) { return Some(d); }
-         None
+        if let Some(d) = self.tier_a.get_mut(&symbol_id) {
+            return Some(d);
+        }
+        if let Some(d) = self.tier_b.get_mut(&symbol_id) {
+            return Some(d);
+        }
+        if let Some(d) = self.tier_c.get_mut(&symbol_id) {
+            return Some(d);
+        }
+        None
     }
 
     pub fn add_candidate(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
@@ -157,61 +174,73 @@ impl Watchlist {
                     return Err("Max subscriptions reached");
                 }
 
-                let mut data = self.tier_c.remove(&symbol_id).unwrap();
+                let mut data = self
+                    .tier_c
+                    .remove(&symbol_id)
+                    .ok_or("Data missing in Tier C")?;
 
                 if data.tick_count < TICK_READY_THRESHOLD {
-                     self.tier_c.insert(symbol_id, data);
+                    self.tier_c.insert(symbol_id, data);
                     return Err("Not TickReady");
                 }
 
                 data.tier = Tier::B;
                 data.subscription_status = SubscriptionStatus::Pending;
                 self.tier_b.insert(symbol_id, data);
-            },
+            }
             Tier::B => {
                 // B -> A
-                 if self.tier_a.len() >= MAX_TIER_A {
+                if self.tier_a.len() >= MAX_TIER_A {
                     return Err("Tier A full");
                 }
                 // A also consumes a subscription, but B already has one.
                 // Assuming A and B both count as 1 subscription (just different processing).
 
-                 let mut data = self.tier_b.remove(&symbol_id).unwrap();
+                let mut data = self
+                    .tier_b
+                    .remove(&symbol_id)
+                    .ok_or("Data missing in Tier B")?;
 
-                 // Reuse TickReady check or strict check
-                 if data.tick_count < TICK_READY_THRESHOLD {
-                     self.tier_b.insert(symbol_id, data);
-                     return Err("Not TickReady for Tier A");
-                 }
+                // Reuse TickReady check or strict check
+                if data.tick_count < TICK_READY_THRESHOLD {
+                    self.tier_b.insert(symbol_id, data);
+                    return Err("Not TickReady for Tier A");
+                }
 
                 data.tier = Tier::A;
                 self.tier_a.insert(symbol_id, data);
-            },
+            }
             Tier::A => return Err("Already in Tier A"),
         }
         Ok(())
     }
 
     pub fn demote(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
-         let current_tier = self.get_tier(symbol_id).ok_or("Symbol not in watchlist")?;
+        let current_tier = self.get_tier(symbol_id).ok_or("Symbol not in watchlist")?;
 
-         match current_tier {
-             Tier::A => {
-                 let mut data = self.tier_a.remove(&symbol_id).unwrap();
-                 data.tier = Tier::B;
-                 self.tier_b.insert(symbol_id, data);
-             },
-             Tier::B => {
-                 let mut data = self.tier_b.remove(&symbol_id).unwrap();
-                 data.tier = Tier::C;
-                 data.subscription_status = SubscriptionStatus::None;
-                 self.tier_c.insert(symbol_id, data);
-             },
-             Tier::C => {
-                 self.tier_c.remove(&symbol_id);
-             }
-         }
-         Ok(())
+        match current_tier {
+            Tier::A => {
+                let mut data = self
+                    .tier_a
+                    .remove(&symbol_id)
+                    .ok_or("Data missing in Tier A")?;
+                data.tier = Tier::B;
+                self.tier_b.insert(symbol_id, data);
+            }
+            Tier::B => {
+                let mut data = self
+                    .tier_b
+                    .remove(&symbol_id)
+                    .ok_or("Data missing in Tier B")?;
+                data.tier = Tier::C;
+                data.subscription_status = SubscriptionStatus::None;
+                self.tier_c.insert(symbol_id, data);
+            }
+            Tier::C => {
+                self.tier_c.remove(&symbol_id);
+            }
+        }
+        Ok(())
     }
 
     pub fn update_tick_count(&mut self, symbol_id: SymbolId) {
@@ -221,9 +250,17 @@ impl Watchlist {
     }
 
     pub fn touch(&mut self, symbol_id: SymbolId, ts: u64) {
-        if let Some(d) = self.tier_a.get_mut(&symbol_id) { d.last_activity = ts; return; }
-        if let Some(d) = self.tier_b.get_mut(&symbol_id) { d.last_activity = ts; return; }
-        if let Some(d) = self.tier_c.get_mut(&symbol_id) { d.last_activity = ts; }
+        if let Some(d) = self.tier_a.get_mut(&symbol_id) {
+            d.last_activity = ts;
+            return;
+        }
+        if let Some(d) = self.tier_b.get_mut(&symbol_id) {
+            d.last_activity = ts;
+            return;
+        }
+        if let Some(d) = self.tier_c.get_mut(&symbol_id) {
+            d.last_activity = ts;
+        }
     }
 
     pub fn total_subscriptions(&self) -> usize {
@@ -271,7 +308,9 @@ mod tests {
 
         wl.add_candidate(sym).unwrap();
         // Fake ticks
-        if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+        if let Some(d) = wl.get_data_mut(sym) {
+            d.tick_count = 100;
+        }
 
         wl.promote(sym).unwrap(); // B
         wl.promote(sym).unwrap(); // A
@@ -293,13 +332,17 @@ mod tests {
         for i in 0..MAX_TOTAL_SUBSCRIPTIONS {
             let sym = SymbolId(i as u32);
             wl.add_candidate(sym).unwrap();
-            if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+            if let Some(d) = wl.get_data_mut(sym) {
+                d.tick_count = 100;
+            }
             wl.promote(sym).unwrap(); // To Tier B
         }
 
         let extra = SymbolId(1000);
         wl.add_candidate(extra).unwrap();
-        if let Some(d) = wl.get_data_mut(extra) { d.tick_count = 100; }
+        if let Some(d) = wl.get_data_mut(extra) {
+            d.tick_count = 100;
+        }
 
         // Should fail
         assert!(wl.promote(extra).is_err());

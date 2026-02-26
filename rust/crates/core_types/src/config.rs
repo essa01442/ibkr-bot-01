@@ -79,9 +79,16 @@ w_bls = 0.05
         assert_eq!(config.tape.tape_threshold_normal, 72.0);
         assert_eq!(config.tape.tape_threshold_post_target, 82.0);
         assert!((config.tape.weights.w_r - 0.30).abs() < 1e-9);
-        let weight_sum = config.tape.weights.w_r + config.tape.weights.w_a
-            + config.tape.weights.w_lp + config.tape.weights.w_spr
-            + config.tape.weights.w_abs + config.tape.weights.w_bls;
-        assert!((weight_sum - 1.0).abs() < 1e-9, "weights must sum to 1.0, got {}", weight_sum);
+        let weight_sum = config.tape.weights.w_r
+            + config.tape.weights.w_a
+            + config.tape.weights.w_lp
+            + config.tape.weights.w_spr
+            + config.tape.weights.w_abs
+            + config.tape.weights.w_bls;
+        assert!(
+            (weight_sum - 1.0).abs() < 1e-9,
+            "weights must sum to 1.0, got {}",
+            weight_sum
+        );
     }
 }

@@ -8,11 +8,13 @@
 //! - **Deterministic** execution.
 
 use core_types::{
-    Event, EventKind, RejectReason, SymbolId, TickData, TapeComponentScores,
-    Tier, RegimeState, DailyContext, MtfAnalysis, ContextState,
-    config::TapeConfig, ColdStartState,
+    config::TapeConfig, ColdStartState, ContextState, DailyContext, Event, EventKind, MtfAnalysis,
+    RegimeState, RejectReason, SymbolId, TapeComponentScores, TickData, Tier,
 };
-use risk_engine::{RiskState, guards::{GuardEvaluator, GuardConfig}};
+use risk_engine::{
+    guards::{GuardConfig, GuardEvaluator},
+    RiskState,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -98,7 +100,11 @@ pub struct TapeEngine {
 }
 
 impl TapeEngine {
-    pub fn new(risk_state: Arc<Mutex<RiskState>>, guard_config: GuardConfig, config: TapeConfig) -> Self {
+    pub fn new(
+        risk_state: Arc<Mutex<RiskState>>,
+        guard_config: GuardConfig,
+        config: TapeConfig,
+    ) -> Self {
         Self {
             risk_state,
             regime_state: RegimeState::Normal, // Default
@@ -130,7 +136,13 @@ impl TapeEngine {
     }
 
     pub fn should_terminate(&self) -> bool {
-        self.risk_state.lock().unwrap().should_terminate()
+        match self.risk_state.lock() {
+            Ok(guard) => guard.should_terminate(),
+            Err(e) => {
+                log::error!("RiskState poisoned in should_terminate: {}", e);
+                true // Terminate on error
+            }
+        }
     }
 
     pub fn set_daily_target_reached(&mut self, reached: bool) {
@@ -140,20 +152,21 @@ impl TapeEngine {
     // --- Event Processing (Fast Loop Interface) ---
     pub fn on_event(&mut self, event: &Event) -> Result<(), RejectReason> {
         // Track event activity (Flicker check)
-        self.guard_evaluator.track_event(event.symbol_id, event.ts_src)?;
+        self.guard_evaluator
+            .track_event(event.symbol_id, event.ts_src)?;
 
         match event.kind {
             EventKind::Tick(tick) => {
-                 // Convert ts_src (micros) to day ordinal roughly
-                 // This assumes ts_src is system time or close to it.
-                 // For now, we will pass 0 or compute it if needed in check_entry.
-                 // Actually, tape_engine doesn't know "today".
-                 // We should pass today_ordinal into on_event or TapeEngine::new?
-                 // Let's compute it from ts_src for now, assuming ts_src is unix epoch micros
-                 let secs = event.ts_src / 1_000_000;
-                 let days = (secs / 86400) as u32; // Rough approximation (UTC)
-                 self.process_tick(event.symbol_id, event.ts_src, tick, days)
-            },
+                // Convert ts_src (micros) to day ordinal roughly
+                // This assumes ts_src is system time or close to it.
+                // For now, we will pass 0 or compute it if needed in check_entry.
+                // Actually, tape_engine doesn't know "today".
+                // We should pass today_ordinal into on_event or TapeEngine::new?
+                // Let's compute it from ts_src for now, assuming ts_src is unix epoch micros
+                let secs = event.ts_src / 1_000_000;
+                let days = (secs / 86400) as u32; // Rough approximation (UTC)
+                self.process_tick(event.symbol_id, event.ts_src, tick, days)
+            }
             EventKind::Snapshot(snap) => {
                 let state = self.get_mut_state(event.symbol_id);
                 state.tape.bid = snap.bid_price;
@@ -162,7 +175,7 @@ impl TapeEngine {
                 state.tape.ask_size = snap.ask_size;
                 state.tape.spread_cents = snap.ask_price - snap.bid_price;
                 Ok(())
-            },
+            }
             EventKind::Fill(fill) => self.process_fill(event.symbol_id, fill),
             EventKind::Reconnect => {
                 log::warn!("TapeEngine: Reconnect received — resetting ColdStart for all symbols.");
@@ -173,8 +186,10 @@ impl TapeEngine {
                 Ok(())
             }
             EventKind::StateSync(ref sync) => {
-                log::info!("TapeEngine: StateSync received — reconciling {} positions.",
-                    sync.positions.len());
+                log::info!(
+                    "TapeEngine: StateSync received — reconciling {} positions.",
+                    sync.positions.len()
+                );
                 // Reset all positions first
                 for state in self.symbol_states.values_mut() {
                     state.position = 0;
@@ -184,8 +199,7 @@ impl TapeEngine {
                 self.global_unrealized_pnl = 0.0;
                 // Rebuild from broker truth
                 for pos in &sync.positions {
-                    let state = self.symbol_states.entry(pos.symbol_id)
-                        .or_default();
+                    let state = self.symbol_states.entry(pos.symbol_id).or_default();
                     state.position = pos.qty;
                     state.avg_cost = pos.avg_cost;
                 }
@@ -195,7 +209,13 @@ impl TapeEngine {
         }
     }
 
-    fn process_tick(&mut self, symbol: SymbolId, ts_src: u64, tick: TickData, day_ordinal: u32) -> Result<(), RejectReason> {
+    fn process_tick(
+        &mut self,
+        symbol: SymbolId,
+        ts_src: u64,
+        tick: TickData,
+        day_ordinal: u32,
+    ) -> Result<(), RejectReason> {
         // We cannot use get_mut_state directly because we need to update global pnl
         // which requires mutable self.
 
@@ -211,17 +231,32 @@ impl TapeEngine {
 
             // Update Global
             self.global_unrealized_pnl += delta;
-            self.risk_state.lock().unwrap().update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+            match self.risk_state.lock() {
+                Ok(mut guard) => {
+                    guard.update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+                }
+                Err(e) => {
+                    log::error!("RiskState poisoned in process_tick: {}", e);
+                }
+            }
         }
 
         self.evaluate_entry_logic(symbol, ts_src, day_ordinal)
     }
 
-    fn process_fill(&mut self, symbol: SymbolId, fill: core_types::FillData) -> Result<(), RejectReason> {
+    fn process_fill(
+        &mut self,
+        symbol: SymbolId,
+        fill: core_types::FillData,
+    ) -> Result<(), RejectReason> {
         let state = self.symbol_states.entry(symbol).or_default();
 
         let fill_size = fill.size as i32;
-        let signed_fill_size = if fill.side == core_types::Side::Bid { fill_size } else { -fill_size };
+        let signed_fill_size = if fill.side == core_types::Side::Bid {
+            fill_size
+        } else {
+            -fill_size
+        };
         let fill_price = fill.price;
 
         if state.position == 0 {
@@ -229,11 +264,13 @@ impl TapeEngine {
             state.avg_cost = fill_price;
         } else {
             // Check if increasing or reducing
-            let same_side = (state.position > 0 && signed_fill_size > 0) || (state.position < 0 && signed_fill_size < 0);
+            let same_side = (state.position > 0 && signed_fill_size > 0)
+                || (state.position < 0 && signed_fill_size < 0);
 
             if same_side {
                 // Weighted Average Cost
-                let total_cost = (state.position as f64 * state.avg_cost) + (signed_fill_size as f64 * fill_price);
+                let total_cost = (state.position as f64 * state.avg_cost)
+                    + (signed_fill_size as f64 * fill_price);
                 state.position += signed_fill_size;
                 state.avg_cost = total_cost / state.position as f64;
             } else {
@@ -241,7 +278,11 @@ impl TapeEngine {
                 // Portion of position closed is min(abs(pos), abs(fill))
                 let close_qty = std::cmp::min(state.position.abs(), signed_fill_size.abs());
                 // The signed amount of closing
-                let signed_close_qty = if state.position > 0 { -close_qty } else { close_qty };
+                let signed_close_qty = if state.position > 0 {
+                    -close_qty
+                } else {
+                    close_qty
+                };
 
                 let trade_pnl = (fill_price - state.avg_cost) * (-signed_close_qty as f64);
                 state.realized_pnl += trade_pnl;
@@ -254,7 +295,9 @@ impl TapeEngine {
 
                 if state.position == 0 {
                     state.avg_cost = 0.0;
-                } else if (prev_position > 0 && state.position < 0) || (prev_position < 0 && state.position > 0) {
+                } else if (prev_position > 0 && state.position < 0)
+                    || (prev_position < 0 && state.position > 0)
+                {
                     // Position flipped. The remaining part is new open.
                     // If flipped, avg_cost should reset to fill_price for the remainder.
                     state.avg_cost = fill_price;
@@ -263,7 +306,11 @@ impl TapeEngine {
         }
 
         // Update Risk State
-        let current_price = if state.tape.price > 0.0 { state.tape.price } else { fill_price };
+        let current_price = if state.tape.price > 0.0 {
+            state.tape.price
+        } else {
+            fill_price
+        };
         let new_unrealized = if state.position != 0 {
             (current_price - state.avg_cost) * state.position as f64
         } else {
@@ -274,7 +321,14 @@ impl TapeEngine {
         state.current_unrealized_pnl = new_unrealized;
         self.global_unrealized_pnl += delta_unrealized;
 
-        self.risk_state.lock().unwrap().update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+        match self.risk_state.lock() {
+            Ok(mut guard) => {
+                guard.update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+            }
+            Err(e) => {
+                log::error!("RiskState poisoned in process_fill: {}", e);
+            }
+        }
 
         Ok(())
     }
@@ -290,30 +344,36 @@ impl TapeEngine {
             ColdStartState::ColdStart => {
                 state.cold_start_state = ColdStartState::WarmActive;
                 state.ticks_in_warm_state = 0;
-            },
+            }
             ColdStartState::WarmActive => {
                 state.ticks_in_warm_state += 1;
                 if state.ticks_in_warm_state >= 100 {
                     state.cold_start_state = ColdStartState::FullActive;
                 }
-            },
+            }
             ColdStartState::FullActive => {}
         }
     }
 
     /// The 12-Step Locked Decision Pipeline
-    pub fn evaluate_entry_logic(&mut self, symbol: SymbolId, ts_src: u64, day_ordinal: u32) -> Result<(), RejectReason> {
-        let state = self.symbol_states.get(&symbol).expect("Symbol state should exist");
+    pub fn evaluate_entry_logic(
+        &mut self,
+        symbol: SymbolId,
+        ts_src: u64,
+        day_ordinal: u32,
+    ) -> Result<(), RejectReason> {
+        let state = self
+            .symbol_states
+            .get(&symbol)
+            .expect("Symbol state should exist");
 
         // 0. Pre-Gate: Tier A Only (User Requirement)
         if state.tier != Tier::A {
             return Err(RejectReason::Blocklist);
         }
 
-        // 1. Blocklist Check
-        // Pass open positions to check_entry for exposure validation
-        // In simulation, we need a list of open symbols.
-        // We can iterate symbol_states where position != 0
+        // 1. Check entry via RiskState (Blocklist, PDT, Exposure, MaxDailyLoss, CorporateActions)
+        // Zero-allocation: use fixed stack buffer (spec §17 caps open positions at 2)
         let mut open_symbols_buf = [SymbolId(0u32); 2];
         let mut open_count = 0usize;
         for (id, state) in &self.symbol_states {
@@ -323,18 +383,20 @@ impl TapeEngine {
                 }
                 open_count += 1;
             }
-        let open_symbols: Vec<SymbolId> = self.symbol_states
-            .iter()
-            .filter(|(_, state)| state.position != 0)
-            .map(|(id, _)| *id)
-            .collect();
-
-        if self.risk_state.lock().unwrap().check_entry(symbol, &open_symbols, day_ordinal).is_err() {
-            return Err(RejectReason::Blocklist);
         }
         let open_symbols = &open_symbols_buf[..open_count.min(2)];
 
-        self.risk_state.lock().unwrap().check_entry(symbol, open_symbols, day_ordinal)?;
+        // Propagate the exact RejectReason (PdtViolation, Blocklist, MaxDailyLoss, etc.)
+        match self.risk_state.lock() {
+            Ok(guard) => guard.check_entry(symbol, open_symbols, day_ordinal)?,
+            Err(e) => {
+                log::error!(
+                    "RiskState poisoned in evaluate_entry_logic (check_entry): {}",
+                    e
+                );
+                return Err(RejectReason::Unknown);
+            }
+        }
 
         // 2. Corporate Actions Gate (Covered by check_entry)
 
@@ -343,16 +405,25 @@ impl TapeEngine {
             Some(ctx) => {
                 let adv = ctx.volume_profile.avg_20d_volume;
                 (adv, adv as f64 * state.tape.price)
-            },
-            None => (0, 0.0)
+            }
+            None => (0, 0.0),
         };
 
-        self.risk_state.lock().unwrap().check_liquidity(
-            state.tape.price,
-            state.tape.spread_cents / state.tape.price, // spread pct
-            adv,
-            addv_usd
-        )?;
+        match self.risk_state.lock() {
+            Ok(guard) => guard.check_liquidity(
+                state.tape.price,
+                state.tape.spread_cents / state.tape.price, // spread pct
+                adv,
+                addv_usd,
+            )?,
+            Err(e) => {
+                log::error!(
+                    "RiskState poisoned in evaluate_entry_logic (check_liquidity): {}",
+                    e
+                );
+                return Err(RejectReason::Unknown);
+            }
+        }
 
         // 5. Regime Gate (Normal Only)
         if self.regime_state != RegimeState::Normal {
@@ -365,7 +436,7 @@ impl TapeEngine {
                 if ctx.state != ContextState::Play {
                     return Err(RejectReason::DailyContext);
                 }
-            },
+            }
             None => return Err(RejectReason::DailyContext),
         }
 
@@ -375,7 +446,7 @@ impl TapeEngine {
                 if !mtf.mtf_pass {
                     return Err(RejectReason::MtfVeto);
                 }
-            },
+            }
             None => return Err(RejectReason::MtfVeto),
         }
 
@@ -393,7 +464,7 @@ impl TapeEngine {
             state.tape.ask,
             state.tape.bid_size,
             state.tape.ask_size,
-            state.last_trade_price
+            state.last_trade_price,
         )?;
 
         // 10. TapeScore Calculation
@@ -403,14 +474,14 @@ impl TapeEngine {
         let scores = self.calculate_scores(&state.tape);
 
         let threshold = match state.tier {
-            Tier::A => {
-                match state.cold_start_state {
-                    ColdStartState::WarmActive => self.config.tape_threshold_warm,
-                    ColdStartState::FullActive if self.daily_target_reached => self.config.tape_threshold_post_target,
-                    ColdStartState::FullActive => self.config.tape_threshold_normal,
-                    ColdStartState::ColdStart => return Err(RejectReason::TapeScoreLow),
+            Tier::A => match state.cold_start_state {
+                ColdStartState::WarmActive => self.config.tape_threshold_warm,
+                ColdStartState::FullActive if self.daily_target_reached => {
+                    self.config.tape_threshold_post_target
                 }
-            }
+                ColdStartState::FullActive => self.config.tape_threshold_normal,
+                ColdStartState::ColdStart => return Err(RejectReason::TapeScoreLow),
+            },
             _ => return Err(RejectReason::Blocklist),
         };
 
@@ -425,7 +496,6 @@ impl TapeEngine {
 
         // 12. Exposure / Correlation Check
         if !self.check_exposure(symbol, open_symbols) {
-        if !self.check_exposure(symbol, &open_symbols) {
             return Err(RejectReason::Exposure);
         }
 
@@ -444,18 +514,18 @@ impl TapeEngine {
         let spr_score = if tape.spread_cents <= 0.01 {
             100.0
         } else {
-             (100.0 - (tape.spread_cents - 0.01) * 2000.0).max(0.0)
+            (100.0 - (tape.spread_cents - 0.01) * 2000.0).max(0.0)
         };
 
         let abs_score = tape.absorption_score.clamp(0.0, 100.0);
         let bls_score = tape.buy_limit_support_score.clamp(0.0, 100.0);
 
-        let total = (r_score * self.config.weights.w_r) +
-                    (a_score * self.config.weights.w_a) +
-                    (lp_score * self.config.weights.w_lp) +
-                    (spr_score * self.config.weights.w_spr) +
-                    (abs_score * self.config.weights.w_abs) +
-                    (bls_score * self.config.weights.w_bls);
+        let total = (r_score * self.config.weights.w_r)
+            + (a_score * self.config.weights.w_a)
+            + (lp_score * self.config.weights.w_lp)
+            + (spr_score * self.config.weights.w_spr)
+            + (abs_score * self.config.weights.w_abs)
+            + (bls_score * self.config.weights.w_bls);
 
         TapeComponentScores {
             r_score,
@@ -482,13 +552,24 @@ impl TapeEngine {
 
     fn expected_net(&self, tape: &TapeMetrics) -> f64 {
         let scores = self.calculate_scores(tape);
-        if scores.total_score > 72.0 { 0.10 } else { -0.10 }
+        if scores.total_score > 72.0 {
+            0.10
+        } else {
+            -0.10
+        }
     }
 
     fn check_exposure(&self, symbol: SymbolId, open_symbols: &[SymbolId]) -> bool {
-        self.risk_state.lock().unwrap().exposure_validator
-            .check_new_position(symbol, open_symbols)
-            .is_ok()
+        match self.risk_state.lock() {
+            Ok(guard) => guard
+                .exposure_validator
+                .check_new_position(symbol, open_symbols)
+                .is_ok(),
+            Err(e) => {
+                log::error!("RiskState poisoned in check_exposure: {}", e);
+                false
+            }
+        }
     }
 }
 
@@ -503,13 +584,21 @@ mod tests {
             tape_threshold_post_target: 82.0,
             tape_threshold_warm: 67.0,
             weights: core_types::config::TapeWeights {
-                w_r: 0.30, w_a: 0.22, w_lp: 0.22, w_spr: 0.13, w_abs: 0.08, w_bls: 0.05
-            }
+                w_r: 0.30,
+                w_a: 0.22,
+                w_lp: 0.22,
+                w_spr: 0.13,
+                w_abs: 0.08,
+                w_bls: 0.05,
+            },
         };
         TapeEngine::new(
-            Arc::new(Mutex::new(RiskState::new(1000.0, LiquidityConfig::default()))),
+            Arc::new(Mutex::new(RiskState::new(
+                1000.0,
+                LiquidityConfig::default(),
+            ))),
             GuardConfig::default(),
-            config
+            config,
         )
     }
 
@@ -558,11 +647,11 @@ mod tests {
         set_valid_tape(&mut engine, sym);
         engine.update_tier(sym, Tier::A);
         engine.update_daily_context(DailyContext {
-             symbol_id: sym,
-             state: ContextState::Play,
-             volume_profile: mock_volume_profile(),
-             has_news: false,
-             sector_momentum: None
+            symbol_id: sym,
+            state: ContextState::Play,
+            volume_profile: mock_volume_profile(),
+            has_news: false,
+            sector_momentum: None,
         });
 
         // Regime RiskOff
@@ -579,19 +668,26 @@ mod tests {
         // Setup passing state
         engine.update_tier(sym, Tier::A);
         engine.update_daily_context(DailyContext {
-             symbol_id: sym,
-             state: ContextState::Play,
-             volume_profile: core_types::VolumeProfile { current_volume: 1_000_000, avg_20d_volume: 500_000, is_surge: false },
-             has_news: true,
-             sector_momentum: None
+            symbol_id: sym,
+            state: ContextState::Play,
+            volume_profile: core_types::VolumeProfile {
+                current_volume: 1_000_000,
+                avg_20d_volume: 500_000,
+                is_surge: false,
+            },
+            has_news: true,
+            sector_momentum: None,
         });
-        engine.update_mtf_analysis(sym, MtfAnalysis {
-            weekly_trend_confirmed: true,
-            daily_resistance_cleared: true,
-            structure_4h_bullish: true,
-            pullback_15m_valid: true,
-            mtf_pass: true,
-        });
+        engine.update_mtf_analysis(
+            sym,
+            MtfAnalysis {
+                weekly_trend_confirmed: true,
+                daily_resistance_cleared: true,
+                structure_4h_bullish: true,
+                pullback_15m_valid: true,
+                mtf_pass: true,
+            },
+        );
 
         let state = engine.get_mut_state(sym);
         state.tape.price = 10.0;
@@ -642,20 +738,23 @@ mod tests {
         set_valid_tape(&mut engine, sym);
         engine.update_tier(sym, Tier::A);
         engine.update_daily_context(DailyContext {
-             symbol_id: sym,
-             state: ContextState::Play,
-             volume_profile: mock_volume_profile(),
-             has_news: true,
-             sector_momentum: None
+            symbol_id: sym,
+            state: ContextState::Play,
+            volume_profile: mock_volume_profile(),
+            has_news: true,
+            sector_momentum: None,
         });
         // MTF Fail
-        engine.update_mtf_analysis(sym, MtfAnalysis {
-            weekly_trend_confirmed: false,
-            daily_resistance_cleared: false,
-            structure_4h_bullish: false,
-            pullback_15m_valid: false,
-            mtf_pass: false,
-        });
+        engine.update_mtf_analysis(
+            sym,
+            MtfAnalysis {
+                weekly_trend_confirmed: false,
+                daily_resistance_cleared: false,
+                structure_4h_bullish: false,
+                pullback_15m_valid: false,
+                mtf_pass: false,
+            },
+        );
 
         let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert_eq!(res, Err(RejectReason::MtfVeto));
@@ -668,11 +767,11 @@ mod tests {
         set_valid_tape(&mut engine, sym);
         engine.update_tier(sym, Tier::A);
         engine.update_daily_context(DailyContext {
-             symbol_id: sym,
-             state: ContextState::Play,
-             volume_profile: mock_volume_profile(),
-             has_news: true,
-             sector_momentum: None
+            symbol_id: sym,
+            state: ContextState::Play,
+            volume_profile: mock_volume_profile(),
+            has_news: true,
+            sector_momentum: None,
         });
         engine.update_mtf_analysis(sym, mock_mtf_pass());
 
@@ -696,11 +795,11 @@ mod tests {
         set_valid_tape(&mut engine, sym);
         engine.update_tier(sym, Tier::A);
         engine.update_daily_context(DailyContext {
-             symbol_id: sym,
-             state: ContextState::Play,
-             volume_profile: mock_volume_profile(),
-             has_news: true,
-             sector_momentum: None
+            symbol_id: sym,
+            state: ContextState::Play,
+            volume_profile: mock_volume_profile(),
+            has_news: true,
+            sector_momentum: None,
         });
         engine.update_mtf_analysis(sym, mock_mtf_pass());
 

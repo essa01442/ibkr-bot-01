@@ -6,7 +6,7 @@
 //!   - Correlation (20d) < 0.5
 //!   - Different Sectors.
 
-use core_types::{SymbolId, RejectReason};
+use core_types::{RejectReason, SymbolId};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
@@ -61,14 +61,24 @@ impl ExposureValidator {
     }
 
     /// Updates the correlation between two symbols given their recent returns.
-    pub fn update_correlation_from_returns(&mut self, a: SymbolId, returns_a: &[f64], b: SymbolId, returns_b: &[f64]) {
+    pub fn update_correlation_from_returns(
+        &mut self,
+        a: SymbolId,
+        returns_a: &[f64],
+        b: SymbolId,
+        returns_b: &[f64],
+    ) {
         if let Some(corr) = Self::calculate_pearson(returns_a, returns_b) {
             self.set_correlation(a, b, corr);
         }
     }
 
     /// Checks if a new position can be opened given the current open positions.
-    pub fn check_new_position(&self, new_symbol: SymbolId, open_positions: &[SymbolId]) -> Result<(), RejectReason> {
+    pub fn check_new_position(
+        &self,
+        new_symbol: SymbolId,
+        open_positions: &[SymbolId],
+    ) -> Result<(), RejectReason> {
         let count = open_positions.len();
 
         // 1. Default Limit: Max 1 Position
@@ -93,7 +103,7 @@ impl ExposureValidator {
                 if s1 == s2 {
                     return Err(RejectReason::Exposure); // Same sector
                 }
-            },
+            }
             _ => {
                 // If sector info is missing, be conservative and reject?
                 // Or allow? Prompt says "Sector restriction", implying we must know they are different.
@@ -103,7 +113,11 @@ impl ExposureValidator {
 
         // Condition B: Correlation (20d) < 0.5
         // If not in matrix, assume high correlation (conservative)
-        let k = if new_symbol.0 < existing_symbol.0 { (new_symbol, existing_symbol) } else { (existing_symbol, new_symbol) };
+        let k = if new_symbol.0 < existing_symbol.0 {
+            (new_symbol, existing_symbol)
+        } else {
+            (existing_symbol, new_symbol)
+        };
         let corr = self.correlation_matrix.get(&k).unwrap_or(&1.0); // Default to 1.0 (fail) if unknown
 
         if *corr >= 0.5 {
@@ -135,13 +149,25 @@ mod tests {
         let sym3 = SymbolId(3); // Candidate
 
         // 2 positions open -> Reject
-        assert_eq!(validator.check_new_position(sym3, &[sym1, sym2]), Err(RejectReason::Exposure));
+        assert_eq!(
+            validator.check_new_position(sym3, &[sym1, sym2]),
+            Err(RejectReason::Exposure)
+        );
     }
 
     #[test]
     fn test_sector_restriction() {
-        let mut validator = ExposureValidator::new();
-        let sym1 = SymbolId(1); // Tech
+        let validator = ExposureValidator::new();
+        let mut validator = validator; // re-bind to mut to silence unused_mut if needed, but actually new() returns non-mut.
+        // The warning was: "variable does not need to be mutable" on `let mut validator = ExposureValidator::new();`
+        // Wait, below we call `validator.set_sector(...)` which takes `&mut self`.
+        // So it DOES need to be mutable.
+        // Ah, in `test_sector_restriction` it is mutable.
+        // The warning was likely in `test_max_2_strict` or `test_correlation_restriction`?
+        // Let's check line 146 in previous output.
+        // crates/risk_engine/src/exposure.rs:146:13
+        // That corresponds to `test_max_2_strict`.
+        // Let's look at `test_max_2_strict`.
         let sym2 = SymbolId(2); // Tech
         let sym3 = SymbolId(3); // Energy
 
@@ -152,7 +178,10 @@ mod tests {
         // Same sector -> Reject
         // (Assume correlation is low for this test, set it explicitly)
         validator.set_correlation(sym1, sym2, 0.1);
-        assert_eq!(validator.check_new_position(sym2, &[sym1]), Err(RejectReason::Exposure));
+        assert_eq!(
+            validator.check_new_position(sym2, &[sym1]),
+            Err(RejectReason::Exposure)
+        );
 
         // Different sector -> Check correlation next
         validator.set_correlation(sym1, sym3, 0.1);
@@ -170,7 +199,10 @@ mod tests {
 
         // High Correlation -> Reject
         validator.set_correlation(sym1, sym2, 0.8);
-        assert_eq!(validator.check_new_position(sym2, &[sym1]), Err(RejectReason::Exposure));
+        assert_eq!(
+            validator.check_new_position(sym2, &[sym1]),
+            Err(RejectReason::Exposure)
+        );
 
         // Low Correlation -> Accept
         validator.set_correlation(sym1, sym2, 0.4);
@@ -179,6 +211,9 @@ mod tests {
         // Unknown Correlation -> Reject (Conservative)
         let sym3 = SymbolId(3);
         validator.set_sector(sym3, "Energy".to_string());
-        assert_eq!(validator.check_new_position(sym3, &[sym1]), Err(RejectReason::Exposure));
+        assert_eq!(
+            validator.check_new_position(sym3, &[sym1]),
+            Err(RejectReason::Exposure)
+        );
     }
 }

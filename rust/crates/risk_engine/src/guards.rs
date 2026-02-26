@@ -178,10 +178,10 @@ impl GuardEvaluator {
         // 4. Imbalance Check
         // Avoid division by zero
         if total_liquidity > 0 {
-             let imb = (bid_size as f64 - ask_size as f64).abs() / (total_liquidity as f64);
-             if imb > config.max_imbalance_ratio {
-                 return self.reject(symbol, timestamp_ms, RejectReason::GuardImbalance);
-             }
+            let imb = (bid_size as f64 - ask_size as f64).abs() / (total_liquidity as f64);
+            if imb > config.max_imbalance_ratio {
+                return self.reject(symbol, timestamp_ms, RejectReason::GuardImbalance);
+            }
         }
 
         // 5. Slippage Check (Price Deviation)
@@ -202,7 +202,12 @@ impl GuardEvaluator {
         Ok(())
     }
 
-    fn reject(&mut self, symbol: SymbolId, timestamp_ms: u64, reason: RejectReason) -> Result<(), RejectReason> {
+    fn reject(
+        &mut self,
+        symbol: SymbolId,
+        timestamp_ms: u64,
+        reason: RejectReason,
+    ) -> Result<(), RejectReason> {
         if let Some(state) = self.states.get_mut(&symbol) {
             state.blocked_until = timestamp_ms + self.config.ttl_ms;
             state.block_reason = Some(reason);
@@ -223,7 +228,9 @@ mod tests {
         let data_ts = now;
 
         // Spread 0.04 (OK)
-        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02).is_ok());
+        assert!(evaluator
+            .check_execution(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02)
+            .is_ok());
 
         // Spread 0.06 (Fail)
         match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.06, 500, 500, 10.03) {
@@ -253,7 +260,9 @@ mod tests {
         // Wait for TTL (2000ms default)
         now += 2000;
         data_ts = now;
-        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02).is_ok());
+        assert!(evaluator
+            .check_execution(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02)
+            .is_ok());
     }
 
     #[test]
@@ -264,7 +273,9 @@ mod tests {
         let data_ts = now;
 
         // Balanced (500/500 = 0.0) -> OK
-        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005).is_ok());
+        assert!(evaluator
+            .check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005)
+            .is_ok());
 
         // Imbalanced (900/100 = 800/1000 = 0.8) -> Fail (Limit 0.7)
         match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 900, 100, 10.005) {
@@ -283,7 +294,9 @@ mod tests {
         // Liquidity 100+100 = 200 (OK, limit 200 inclusive?)
         // Limit is min_liquidity_shares: 200. If < 200 reject.
         // 200 is OK.
-        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 100, 100, 10.005).is_ok());
+        assert!(evaluator
+            .check_execution(symbol, now, data_ts, 10.00, 10.01, 100, 100, 10.005)
+            .is_ok());
 
         // Liquidity 50+50 = 100 (Fail)
         match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 50, 50, 10.005) {
@@ -294,13 +307,15 @@ mod tests {
 
     #[test]
     fn test_slippage_guard() {
-         let mut evaluator = GuardEvaluator::new(GuardConfig::default());
+        let mut evaluator = GuardEvaluator::new(GuardConfig::default());
         let symbol = SymbolId(4);
         let now = 1000;
         let data_ts = now;
 
         // Mid 10.005, Last 10.005 -> Diff 0.0 (OK)
-        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005).is_ok());
+        assert!(evaluator
+            .check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005)
+            .is_ok());
 
         // Mid 10.005, Last 10.10 -> Diff 0.095 > 0.03 (Fail)
         match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.10) {
@@ -334,8 +349,8 @@ mod tests {
 
         // Check that check_execution also reports block
         match evaluator.check_execution(symbol, now, now, 10.0, 10.04, 100, 100, 10.02) {
-             Err(RejectReason::GuardFlicker) => (),
-             _ => panic!("Expected GuardFlicker persistence in check_execution"),
+            Err(RejectReason::GuardFlicker) => (),
+            _ => panic!("Expected GuardFlicker persistence in check_execution"),
         }
     }
 
@@ -349,11 +364,13 @@ mod tests {
 
         // Data is recent (1500 vs 2000, 500ms diff) -> OK
         let data_ts = 1500;
-        assert!(evaluator.check_execution(symbol, now, data_ts, 10.0, 10.04, 100, 100, 10.02).is_ok());
+        assert!(evaluator
+            .check_execution(symbol, now, data_ts, 10.0, 10.04, 100, 100, 10.02)
+            .is_ok());
 
         // Data is old (500 vs 2000, 1500ms diff) -> Fail
-        let data_ts = 500;
-        match evaluator.check_execution(symbol, now, data_ts, 10.0, 10.04, 100, 100, 10.02) {
+        let data_ts_old = 500;
+        match evaluator.check_execution(symbol, now, data_ts_old, 10.0, 10.04, 100, 100, 10.02) {
             Err(RejectReason::GuardStale) => (),
             _ => panic!("Expected GuardStale"),
         }

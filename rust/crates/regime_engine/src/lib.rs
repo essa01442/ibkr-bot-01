@@ -100,7 +100,9 @@ impl RegimeEngine {
             return RegimeState::Caution;
         }
 
-        if self.market_breadth < self.params.min_breadth || self.market_breadth > self.params.max_breadth {
+        if self.market_breadth < self.params.min_breadth
+            || self.market_breadth > self.params.max_breadth
+        {
             return RegimeState::Caution;
         }
 

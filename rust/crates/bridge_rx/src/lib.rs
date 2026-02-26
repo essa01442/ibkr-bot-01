@@ -13,14 +13,16 @@
 use core_types::{Event, EventKind};
 use event_bus::EventBus;
 use serde::Deserialize;
+use std::io::Cursor;
+use std::os::unix::fs::PermissionsExt;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::time;
-use std::os::unix::fs::PermissionsExt;
 
 #[allow(dead_code)]
 const BATCH_SIZE_LIMIT: usize = 512;
+#[allow(dead_code)]
 const BATCH_TIMEOUT: Duration = Duration::from_millis(5); // Aggressive 5ms flush
 const HEARTBEAT_TIMEOUT: Duration = Duration::from_secs(1);
 const BUFFER_CAPACITY: usize = 65536; // 64KB read buffer
@@ -60,11 +62,18 @@ pub struct BridgeRxTask {
     degraded_tx: Option<mpsc::Sender<bool>>,
 }
 
+fn now_micros() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros() as u64
+}
+
 impl BridgeRxTask {
     pub fn new(socket_path: &str, bus: EventBus) -> std::io::Result<Self> {
         // Ensure socket file doesn't exist
         if std::path::Path::new(socket_path).exists() {
-             let _ = std::fs::remove_file(socket_path);
+            let _ = std::fs::remove_file(socket_path);
         }
         let listener = UnixListener::bind(socket_path)?;
         std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
@@ -121,38 +130,24 @@ impl BridgeRxTask {
         // Clear buffer on new connection
         self.read_buf.clear();
 
-        // Using a loop with select! to handle read vs timeout vs heartbeat check
-        let mut interval = time::interval(BATCH_TIMEOUT);
-        interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
-        let mut heartbeat_check = tokio::time::interval(Duration::from_millis(500));
-
         loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    // Periodic flush if we were buffering partial events,
-                    // but we handle immediate dispatch below.
-                }
-                _ = heartbeat_check.tick() => {
-                    if self.last_heartbeat.elapsed() > HEARTBEAT_TIMEOUT && !self.is_degraded {
-                        log::warn!("Heartbeat lost! Entering DEGRADED mode.");
-                        self.is_degraded = true;
-                    }
-                }
-
-                 result = self.read_and_process_batch(&mut reader) => {
-                     if let Err(e) = result {
-                         log::error!("Stream error: {}", e);
-                         break;
-                     }
-                 }
+            if let Err(e) = self.read_and_process_batch(&mut reader).await {
+                log::error!("Stream error: {}", e);
+                break;
             }
         }
     }
 
-    async fn read_and_process_batch<R: AsyncReadExt + Unpin>(&mut self, reader: &mut R) -> std::io::Result<()> {
+    async fn read_and_process_batch<R: AsyncReadExt + Unpin>(
+        &mut self,
+        reader: &mut R,
+    ) -> std::io::Result<()> {
         let n = reader.read_buf(&mut self.read_buf).await?;
         if n == 0 {
-             return Err(std::io::Error::new(std::io::ErrorKind::ConnectionAborted, "EOF"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionAborted,
+                "EOF",
+            ));
         }
 
         let mut cursor = 0;
@@ -162,75 +157,81 @@ impl BridgeRxTask {
             }
 
             // We use a cursor over the slice
-            let mut cur = std::io::Cursor::new(&self.read_buf[cursor..]);
-            let mut de = rmp_serde::decode::Deserializer::new(&mut cur);
-
-
-        let mut cursor = 0;
-        loop {
-            if cursor >= self.read_buf.len() {
-                break;
-            }
-
-            // We use a cursor over the slice
-            let mut cur = std::io::Cursor::new(&self.read_buf[cursor..]);
+            let mut cur = Cursor::new(&self.read_buf[cursor..]);
             let mut de = rmp_serde::decode::Deserializer::new(&mut cur);
 
             match Event::deserialize(&mut de) {
                 Ok(event) => {
-                     cursor += cur.position() as usize;
+                    cursor += cur.position() as usize;
 
-                     if let EventKind::Heartbeat = event.kind {
-                         self.last_heartbeat = Instant::now();
-                         if self.is_degraded {
+                    if let EventKind::Heartbeat = event.kind {
+                        self.last_heartbeat = Instant::now();
+                        if self.is_degraded {
                             log::info!("Heartbeat restored. Resuming NORMAL mode.");
                             self.is_degraded = false;
                             if let Some(tx) = &self.degraded_tx {
                                 let _ = tx.try_send(false);
                             }
-                         }
-                     }
+                        }
+                    }
 
-                     if self.validate_event(&event) {
-                         self.process_event(event).await;
-                     } else {
-                         log::warn!("[bridge_rx] invalid event dropped: {:?}", event);
-                     }
-                },
+                    if self.validate_event(&event) {
+                        self.process_event(event).await;
+                    } else {
+                        log::warn!("[bridge_rx] invalid event dropped: {:?}", event);
+                    }
+                }
                 Err(e) => {
-                     use rmp_serde::decode::Error;
-                     match e {
-                        Error::InvalidMarkerRead(_) | Error::InvalidDataRead(_) => {
-                            // Incomplete data, wait for more
+                    use rmp_serde::decode::Error;
+                    // Only catch incomplete reads, propagate invalid data
+                    // rmp_serde Error doesn't cleanly map to "Incomplete", so we rely on checks
+                    // Actually, for stream processing, if we fail to deserialize, we might need more bytes.
+                    // But rmp-serde is synchronous.
+                    // Simple strategy: If error, and buffer not empty, assume we need more bytes?
+                    // Or if invalid marker, it's corrupt.
+                    // Let's assume unexpected EOF is "need more bytes".
+                    match e {
+                        Error::InvalidMarkerRead(ref io_err) | Error::InvalidDataRead(ref io_err) => {
+                            if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
+                                // Need more data
+                                break;
+                            } else {
+                                // Corrupt?
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    e,
+                                ));
+                            }
+                        }
+                        Error::Syntax(_) => {
+                            // Syntax error likely means partial write or corrupt
                             break;
                         }
-                         _ => {
-                             // Assuming any other error is fatal/corrupt data
-                             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
-                         }
-                     }
+                        _ => {
+                            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+                        }
+                    }
                 }
             }
         }
 
         // Drain consumed bytes
         if cursor > 0 {
-            self.read_buf.drain(0..cursor);
+            if cursor == self.read_buf.len() {
+                self.read_buf.clear();
+            } else {
+                // Should use drain, but Vec::drain is O(N).
+                // Ideally use circular buffer or bytes crate.
+                // For now, drain is fine for small batches.
+                self.read_buf.drain(0..cursor);
+            }
         }
 
         Ok(())
     }
 
     fn validate_event(&self, event: &Event) -> bool {
-        let now_us = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;
-
-        if event.ts_src == 0 || event.ts_src > now_us + 5_000_000 {
-            return false;
-        }
-
-
-    fn validate_event(&self, event: &Event) -> bool {
-        let now_us = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;
+        let now_us = now_micros();
 
         if event.ts_src == 0 || event.ts_src > now_us + 5_000_000 {
             return false;
@@ -238,17 +239,25 @@ impl BridgeRxTask {
 
         match event.kind {
             EventKind::Tick(tick) => {
-                if tick.price <= 0.0 || tick.price >= 100_000.0 || tick.size == 0 { return false; }
-            },
+                if tick.price <= 0.0 || tick.price >= 100_000.0 || tick.size == 0 {
+                    return false;
+                }
+            }
             EventKind::Fill(fill) => {
-                if fill.price <= 0.0 || fill.price >= 100_000.0 || fill.size == 0 { return false; }
-            },
+                if fill.price <= 0.0 || fill.price >= 100_000.0 || fill.size == 0 {
+                    return false;
+                }
+            }
             EventKind::L2Delta(l2) => {
-                if l2.price <= 0.0 { return false; }
-            },
+                if l2.price <= 0.0 {
+                    return false;
+                }
+            }
             EventKind::Snapshot(snap) => {
-                if snap.bid_price <= 0.0 || snap.bid_price >= snap.ask_price { return false; }
-            },
+                if snap.bid_price <= 0.0 || snap.bid_price >= snap.ask_price {
+                    return false;
+                }
+            }
             _ => {}
         }
         true

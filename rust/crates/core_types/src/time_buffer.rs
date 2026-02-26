@@ -39,7 +39,9 @@ impl<T> TimeRingBuffer<T> {
     }
 
     pub fn prune_expired(&mut self, current_time: u64) {
-        if self.head == self.tail { return; }
+        if self.head == self.tail {
+            return;
+        }
 
         let cutoff = current_time.saturating_sub(self.window_micros);
 

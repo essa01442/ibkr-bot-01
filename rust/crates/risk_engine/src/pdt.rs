@@ -25,12 +25,16 @@ impl Default for PdtGuard {
 
 impl PdtGuard {
     pub fn new(max_day_trades: usize) -> Self {
-        Self { trades: VecDeque::new(), max_day_trades }
+        Self {
+            trades: VecDeque::new(),
+            max_day_trades,
+        }
     }
 
     /// Returns the number of day trades in the last 5 business days.
     pub fn day_trade_count_last_5_days(&self, today_ordinal: u32) -> usize {
-        self.trades.iter()
+        self.trades
+            .iter()
             .filter(|(d, _)| today_ordinal.saturating_sub(*d) < 5)
             .count()
     }
@@ -40,7 +44,11 @@ impl PdtGuard {
         self.trades.push_back((date_ordinal, symbol_id));
         // Prune entries older than 5 days
         while let Some(&(d, _)) = self.trades.front() {
-            if date_ordinal.saturating_sub(d) >= 5 { self.trades.pop_front(); } else { break; }
+            if date_ordinal.saturating_sub(d) >= 5 {
+                self.trades.pop_front();
+            } else {
+                break;
+            }
         }
     }
 

@@ -3,7 +3,7 @@
 //! Manages Order State, Fills, Timeouts, and Idempotency.
 //! Handles Bracket Orders and Trailing Stops.
 
-use core_types::{Order, OrderRequest, OrderStatus, FillData, StateSyncData, OrderStatusData};
+use core_types::{FillData, Order, OrderRequest, OrderStatus, OrderStatusData, StateSyncData};
 use std::collections::{HashMap, HashSet};
 
 pub struct OrderManagementSystem {
@@ -36,7 +36,11 @@ impl OrderManagementSystem {
     /// Handles a new order request.
     /// Returns (Internal Order ID, Optional Bracket Orders to send)
     /// If idempotency key exists, returns existing Order ID.
-    pub fn place_order(&mut self, request: OrderRequest, timestamp_us: u64) -> Result<u64, &'static str> {
+    pub fn place_order(
+        &mut self,
+        request: OrderRequest,
+        timestamp_us: u64,
+    ) -> Result<u64, &'static str> {
         if let Some(&existing_id) = self.idempotency_cache.get(&request.idempotency_key) {
             return Ok(existing_id);
         }
@@ -62,7 +66,8 @@ impl OrderManagementSystem {
         };
 
         self.orders.insert(order_id, order);
-        self.idempotency_cache.insert(request.idempotency_key, order_id);
+        self.idempotency_cache
+            .insert(request.idempotency_key, order_id);
 
         Ok(order_id)
     }
@@ -84,7 +89,8 @@ impl OrderManagementSystem {
             order.updated_at = timestamp_us;
 
             // Update average price
-            let total_cost = (order.filled_qty as f64 * order.avg_fill_price) + (fill.size as f64 * fill.price);
+            let total_cost =
+                (order.filled_qty as f64 * order.avg_fill_price) + (fill.size as f64 * fill.price);
             order.filled_qty += fill.size;
             if order.filled_qty > 0 {
                 order.avg_fill_price = total_cost / order.filled_qty as f64;
@@ -93,10 +99,10 @@ impl OrderManagementSystem {
             if order.filled_qty >= order.qty {
                 order.status = OrderStatus::Filled;
             } else {
-                 // Partial fill, ensure status implies Open/Live
-                 if order.status != OrderStatus::Live {
-                     order.status = OrderStatus::Live;
-                 }
+                // Partial fill, ensure status implies Open/Live
+                if order.status != OrderStatus::Live {
+                    order.status = OrderStatus::Live;
+                }
             }
         }
     }
@@ -113,10 +119,10 @@ impl OrderManagementSystem {
     }
 
     pub fn cancel_order(&mut self, order_id: u64, timestamp_us: u64) {
-         if let Some(order) = self.orders.get_mut(&order_id) {
-             order.status = OrderStatus::Cancelled;
-             order.updated_at = timestamp_us;
-         }
+        if let Some(order) = self.orders.get_mut(&order_id) {
+            order.status = OrderStatus::Cancelled;
+            order.updated_at = timestamp_us;
+        }
     }
 
     pub fn check_timeouts(&mut self, now_us: u64, timeout_us: u64) -> Vec<u64> {
@@ -151,15 +157,17 @@ impl OrderManagementSystem {
                         local_order.filled_qty = broker_order.filled_qty;
                         local_order.avg_fill_price = broker_order.avg_fill_price;
                     }
-                } else if let Some(&internal_id) = self.idempotency_cache.get(&broker_order.client_order_id) {
-                     // Match by client ID (e.g. we sent it but didn't get ack yet)
-                     if let Some(local_order) = self.orders.get_mut(&internal_id) {
+                } else if let Some(&internal_id) =
+                    self.idempotency_cache.get(&broker_order.client_order_id)
+                {
+                    // Match by client ID (e.g. we sent it but didn't get ack yet)
+                    if let Some(local_order) = self.orders.get_mut(&internal_id) {
                         local_order.broker_order_id = Some(id.clone());
                         self.broker_map.insert(id, internal_id);
                         local_order.status = broker_order.status;
                         local_order.filled_qty = broker_order.filled_qty;
                         local_order.avg_fill_price = broker_order.avg_fill_price;
-                     }
+                    }
                 } else {
                     // Unknown order from broker (e.g. placed manually or before restart)
                     // Import it
@@ -175,7 +183,8 @@ impl OrderManagementSystem {
                     // We don't have client_order_id in cache if it wasn't placed by this run,
                     // but we can add it if needed.
                     if !broker_order.client_order_id.is_empty() {
-                        self.idempotency_cache.insert(broker_order.client_order_id.clone(), new_id);
+                        self.idempotency_cache
+                            .insert(broker_order.client_order_id.clone(), new_id);
                     }
                 }
             }
@@ -211,7 +220,7 @@ impl OrderManagementSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_types::{TimeInForce, OrderType, Side, SymbolId};
+    use core_types::{OrderType, Side, SymbolId, TimeInForce};
 
     #[test]
     fn test_place_order_idempotency() {

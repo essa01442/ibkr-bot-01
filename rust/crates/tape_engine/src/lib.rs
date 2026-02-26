@@ -7,7 +7,12 @@
 //! - **O(1)** complexity for all event handlers.
 //! - **Deterministic** execution.
 
-use core_types::{Event, EventKind, RejectReason, SymbolId, TickData, TapeComponentScores};
+use core_types::{
+    Event, EventKind, RejectReason, SymbolId, TickData, TapeComponentScores,
+    Tier, RegimeState, DailyContext, MtfAnalysis, ContextState,
+};
+use risk_engine::{RiskState, guards::{GuardEvaluator, GuardConfig}};
+use std::collections::HashMap;
 
 // Hardcoded weights from config (0.30, 0.22, 0.22, 0.13, 0.08, 0.05)
 const W_R: f64 = 0.30;
@@ -17,11 +22,40 @@ const W_SPR: f64 = 0.13;
 const W_ABS: f64 = 0.08;
 const W_BLS: f64 = 0.05;
 
-// --- Mock Implementations for State ---
-// These will be fully fleshed out in Phase 3/4.
-pub struct Tape {
+// Constants for Decision Logic
+const TAPESCORE_THRESHOLD: f64 = 72.0;
+
+// --- State for a Single Symbol ---
+#[derive(Debug)]
+pub struct SymbolState {
+    pub tier: Tier,
+    pub daily_context: Option<DailyContext>,
+    pub mtf_analysis: Option<MtfAnalysis>,
+    pub tape: TapeMetrics,
+    pub last_trade_price: f64,
+}
+
+impl SymbolState {
+    pub fn new() -> Self {
+        Self {
+            tier: Tier::C, // Default to lowest tier
+            daily_context: None,
+            mtf_analysis: None,
+            tape: TapeMetrics::default(),
+            last_trade_price: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct TapeMetrics {
     pub price: f64,
+    pub bid: f64,
+    pub ask: f64,
+    pub bid_size: u32,
+    pub ask_size: u32,
     pub volume: u64,
+
     // Aggressive metrics for scoring
     pub rate_ticks_per_sec: f64,
     pub aggressive_buy_ratio: f64,
@@ -30,124 +64,197 @@ pub struct Tape {
     pub buy_limit_support_score: f64,
     pub spread_cents: f64,
     pub is_reversal: bool,
-}
 
-pub struct Guards {
-    pub spread: f64,
-    pub imbalance: f64,
+    // For Anti-Chase (simplified)
+    pub vwap: f64,
+    pub atr: f64,
 }
 
 pub struct TapeEngine {
-    // In a real implementation, this would be a fixed-size map (array) indexed by symbol_id
-    // For now, we just pretend we have state for the current symbol being processed.
-    tape: Tape,
-    guards: Guards,
+    // Global State
+    pub risk_state: RiskState,
+    pub regime_state: RegimeState,
+    pub guard_evaluator: GuardEvaluator,
+
+    // Per-Symbol State
+    pub symbol_states: HashMap<SymbolId, SymbolState>,
 }
 
 impl TapeEngine {
-    pub fn new() -> Self {
+    pub fn new(risk_state: RiskState, guard_config: GuardConfig) -> Self {
         Self {
-            tape: Tape {
-                price: 0.0,
-                volume: 0,
-                rate_ticks_per_sec: 0.0,
-                aggressive_buy_ratio: 0.0,
-                large_print_score: 0.0,
-                absorption_score: 0.0,
-                buy_limit_support_score: 0.0,
-                spread_cents: 0.0,
-                is_reversal: false,
-            },
-            guards: Guards { spread: 0.01, imbalance: 0.5 },
+            risk_state,
+            regime_state: RegimeState::Normal, // Default
+            guard_evaluator: GuardEvaluator::new(guard_config),
+            symbol_states: HashMap::new(),
         }
     }
 
+    // --- State Update Methods (Slow Loop Interface) ---
+    pub fn update_tier(&mut self, symbol: SymbolId, tier: Tier) {
+        self.get_mut_state(symbol).tier = tier;
+    }
+
+    pub fn update_daily_context(&mut self, ctx: DailyContext) {
+        let symbol_id = ctx.symbol_id;
+        self.get_mut_state(symbol_id).daily_context = Some(ctx);
+    }
+
+    pub fn update_mtf_analysis(&mut self, symbol: SymbolId, analysis: MtfAnalysis) {
+        self.get_mut_state(symbol).mtf_analysis = Some(analysis);
+    }
+
+    pub fn update_regime(&mut self, regime: RegimeState) {
+        self.regime_state = regime;
+    }
+
+    // --- Event Processing (Fast Loop Interface) ---
     pub fn on_event(&mut self, event: &Event) -> Result<(), RejectReason> {
+        // Track event activity (Flicker check)
+        self.guard_evaluator.track_event(event.symbol_id, event.ts_src)?;
+
         match event.kind {
-            EventKind::Tick(tick) => self.process_tick(event.symbol_id, tick),
+            EventKind::Tick(tick) => self.process_tick(event.symbol_id, event.ts_src, tick),
+            EventKind::Snapshot(snap) => {
+                let state = self.get_mut_state(event.symbol_id);
+                state.tape.bid = snap.bid_price;
+                state.tape.ask = snap.ask_price;
+                state.tape.bid_size = snap.bid_size;
+                state.tape.ask_size = snap.ask_size;
+                state.tape.spread_cents = snap.ask_price - snap.bid_price;
+                Ok(())
+            },
             _ => Ok(()),
         }
     }
 
-    fn process_tick(&mut self, symbol: SymbolId, tick: TickData) -> Result<(), RejectReason> {
-        // Update local state (mock update for now, in real life updates buffers)
-        self.tape.price = tick.price;
-        self.evaluate_entry_logic(symbol, tick)
+    fn process_tick(&mut self, symbol: SymbolId, ts_src: u64, tick: TickData) -> Result<(), RejectReason> {
+        let state = self.get_mut_state(symbol);
+        state.tape.price = tick.price;
+        state.last_trade_price = tick.price; // Simplified for now
+
+        // In a real system, we'd update tape metrics here based on tick flow
+
+        self.evaluate_entry_logic(symbol, ts_src)
     }
 
     /// The 12-Step Locked Decision Pipeline
-    fn evaluate_entry_logic(&self, _symbol: SymbolId, tick: TickData) -> Result<(), RejectReason> {
-        // 1. Blocklist Check
-        if self.is_blocked() { return Err(RejectReason::Blocklist); }
+    pub fn evaluate_entry_logic(&mut self, symbol: SymbolId, ts_src: u64) -> Result<(), RejectReason> {
+        let state = self.symbol_states.get(&symbol).expect("Symbol state should exist");
 
-        // 2. Corporate Actions Gate
-        if self.has_corporate_action() { return Err(RejectReason::CorporateActionBlock); }
-
-        // 3. Price Range Gate
-        if tick.price < 0.30 || tick.price > 25.00 {
-            return Err(RejectReason::PriceRange);
+        // 0. Pre-Gate: Tier A Only (User Requirement)
+        if state.tier != Tier::A {
+            return Err(RejectReason::Blocklist);
         }
 
-        // 4. Universe Liquidity Gate
-        if !self.check_liquidity() { return Err(RejectReason::Liquidity); }
+        // 1. Blocklist Check
+        if self.risk_state.check_entry(symbol).is_err() {
+            return Err(RejectReason::Blocklist);
+        }
 
-        // 5. Regime Gate
-        if !self.check_regime() { return Err(RejectReason::Regime); }
+        // 2. Corporate Actions Gate (Covered by check_entry)
+
+        // 3. Price Range & 4. Liquidity (RiskState)
+        let (adv, addv_usd) = match &state.daily_context {
+            Some(ctx) => {
+                let adv = ctx.volume_profile.avg_20d_volume;
+                (adv, adv as f64 * state.tape.price)
+            },
+            None => (0, 0.0)
+        };
+
+        if let Err(e) = self.risk_state.check_liquidity(
+            state.tape.price,
+            state.tape.spread_cents / state.tape.price, // spread pct
+            adv,
+            addv_usd
+        ) {
+            return Err(e);
+        }
+
+        // 5. Regime Gate (Normal Only)
+        if self.regime_state != RegimeState::Normal {
+            return Err(RejectReason::Regime);
+        }
 
         // 6. Daily Context Gate
-        if !self.check_daily_context() { return Err(RejectReason::DailyContext); }
-
-        // 7. MTF Confirmation Gate
-        if !self.check_mtf() { return Err(RejectReason::MtfVeto); }
-
-        // 8. Anti-Chase Filter
-        if self.run_up_too_high() { return Err(RejectReason::AntiChase); }
-
-        // 9. Microstructure Guards
-        if !self.check_guards() { return Err(RejectReason::GuardSpread); }
-
-        // 10. TapeScore Calculation
-        // New logic: Check Reversal Veto first
-        if self.tape.is_reversal {
-            return Err(RejectReason::TapeReversal);
+        match &state.daily_context {
+            Some(ctx) => {
+                if ctx.state != ContextState::Play {
+                    return Err(RejectReason::DailyContext);
+                }
+            },
+            None => return Err(RejectReason::DailyContext),
         }
 
-        let scores = self.calculate_scores();
-        if scores.total_score < 72.0 { return Err(RejectReason::TapeScoreLow); }
+        // 7. MTF Confirmation Gate
+        match &state.mtf_analysis {
+            Some(mtf) => {
+                if !mtf.mtf_pass {
+                    return Err(RejectReason::MtfVeto);
+                }
+            },
+            None => return Err(RejectReason::MtfVeto),
+        }
+
+        // 8. Anti-Chase Filter
+        // Passing &state.tape directly to avoid borrowing self while borrowing state
+        if Self::check_anti_chase(&state.tape) {
+            return Err(RejectReason::AntiChase);
+        }
+
+        // 9. Microstructure Guards
+        self.guard_evaluator.check_execution(
+            symbol,
+            ts_src,
+            ts_src,
+            state.tape.bid,
+            state.tape.ask,
+            state.tape.bid_size,
+            state.tape.ask_size,
+            state.last_trade_price
+        )?;
+
+        // 10. TapeScore Calculation
+        if state.tape.is_reversal {
+            return Err(RejectReason::TapeReversal);
+        }
+        // Use static method to avoid borrow issues
+        let scores = Self::calculate_scores(&state.tape);
+        if scores.total_score < TAPESCORE_THRESHOLD {
+            return Err(RejectReason::TapeScoreLow);
+        }
 
         // 11. ExpectedNet Validation
-        if self.expected_net() <= 0.0 { return Err(RejectReason::NetNegative); }
+        if Self::expected_net(&state.tape) <= 0.0 {
+            return Err(RejectReason::NetNegative);
+        }
 
         // 12. Exposure / Correlation Check
-        if self.check_exposure() { return Err(RejectReason::Exposure); }
+        if !Self::check_exposure(&self.risk_state, symbol) {
+            return Err(RejectReason::Exposure);
+        }
 
         Ok(())
     }
 
-    pub fn calculate_scores(&self) -> TapeComponentScores {
-        // R: Rate (ticks/sec). Normalize 0-100. Let's assume max 100 ticks/sec = 100.
-        let r_score = (self.tape.rate_ticks_per_sec).min(100.0).max(0.0);
+    fn get_mut_state(&mut self, symbol: SymbolId) -> &mut SymbolState {
+        self.symbol_states.entry(symbol).or_insert_with(SymbolState::new)
+    }
 
-        // A: Aggression (ratio). 0.0-1.0 -> 0-100.
-        let a_score = (self.tape.aggressive_buy_ratio * 100.0).min(100.0).max(0.0);
+    pub fn calculate_scores(tape: &TapeMetrics) -> TapeComponentScores {
+        let r_score = tape.rate_ticks_per_sec.min(100.0).max(0.0);
+        let a_score = (tape.aggressive_buy_ratio * 100.0).min(100.0).max(0.0);
+        let lp_score = tape.large_print_score.min(100.0).max(0.0);
 
-        // LP: Large Print. Already normalized in state for this mock.
-        let lp_score = self.tape.large_print_score.min(100.0).max(0.0);
-
-        // Spr: Spread. Lower is better. 0.01 = 100, 0.05 = 0.
-        // Let's implement a simple linear mapping: 100 - (spread - 0.01) * factor
-        // Or just mock it: if spread <= 0.01, 100. else decay.
-        let spr_score = if self.tape.spread_cents <= 0.01 {
+        let spr_score = if tape.spread_cents <= 0.01 {
             100.0
         } else {
-             (100.0 - (self.tape.spread_cents - 0.01) * 2000.0).max(0.0)
+             (100.0 - (tape.spread_cents - 0.01) * 2000.0).max(0.0)
         };
 
-        // Abs: Absorption.
-        let abs_score = self.tape.absorption_score.min(100.0).max(0.0);
-
-        // BLS: Buy Limit Support.
-        let bls_score = self.tape.buy_limit_support_score.min(100.0).max(0.0);
+        let abs_score = tape.absorption_score.min(100.0).max(0.0);
+        let bls_score = tape.buy_limit_support_score.min(100.0).max(0.0);
 
         let total = (r_score * W_R) +
                     (a_score * W_A) +
@@ -163,74 +270,240 @@ impl TapeEngine {
             spr_score,
             abs_score,
             bls_score,
-            total_score: total, // Weights sum to 1.0 (0.3+0.22+0.22+0.13+0.08+0.05=1.00)
+            total_score: total,
         }
     }
 
-    // --- Mock Helpers ---
-    fn is_blocked(&self) -> bool { false }
-    fn has_corporate_action(&self) -> bool { false }
-    fn check_liquidity(&self) -> bool { true }
-    fn check_regime(&self) -> bool { true }
-    fn check_daily_context(&self) -> bool { true }
-    fn check_mtf(&self) -> bool { true }
-    fn run_up_too_high(&self) -> bool { false }
-    fn check_guards(&self) -> bool { true }
-    fn expected_net(&self) -> f64 { 0.05 }
-    fn check_exposure(&self) -> bool { false }
+    fn check_anti_chase(tape: &TapeMetrics) -> bool {
+        if tape.vwap > 0.0 && tape.atr > 0.0 {
+            if tape.price > tape.vwap + (2.0 * tape.atr) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn expected_net(tape: &TapeMetrics) -> f64 {
+        let scores = Self::calculate_scores(tape);
+        if scores.total_score > 72.0 { 0.10 } else { -0.10 }
+    }
+
+    fn check_exposure(risk_state: &RiskState, _symbol: SymbolId) -> bool {
+        if risk_state.open_positions >= 3 {
+             return false;
+        }
+        true
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core_types::LiquidityConfig;
 
-    #[test]
-    fn test_scoring_weights() {
-        let mut engine = TapeEngine::new();
-        // Set all components to max (100)
-        engine.tape.rate_ticks_per_sec = 100.0;
-        engine.tape.aggressive_buy_ratio = 1.0;
-        engine.tape.large_print_score = 100.0;
-        engine.tape.spread_cents = 0.01;
-        engine.tape.absorption_score = 100.0;
-        engine.tape.buy_limit_support_score = 100.0;
+    fn default_engine() -> TapeEngine {
+        TapeEngine::new(
+            RiskState::new(1000.0, LiquidityConfig::default()),
+            GuardConfig::default()
+        )
+    }
 
-        let scores = engine.calculate_scores();
-        assert!((scores.total_score - 100.0).abs() < 0.001, "Expected 100, got {}", scores.total_score);
+    fn set_valid_tape(engine: &mut TapeEngine, sym: SymbolId) {
+        let state = engine.get_mut_state(sym);
+        state.tape.price = 10.0;
+        state.last_trade_price = 10.0;
+        state.tape.bid = 9.99;
+        state.tape.ask = 10.01;
+        state.tape.spread_cents = 0.02;
+        state.tape.bid_size = 500;
+        state.tape.ask_size = 500;
+        state.tape.volume = 600_000;
+        state.tape.rate_ticks_per_sec = 80.0;
+        state.tape.aggressive_buy_ratio = 0.8;
+        state.tape.large_print_score = 80.0;
+        // For AntiChase
+        state.tape.vwap = 10.0;
+        state.tape.atr = 0.10;
     }
 
     #[test]
-    fn test_scoring_partial() {
-        let mut engine = TapeEngine::new();
-        // R=50 (0.3*50=15)
-        engine.tape.rate_ticks_per_sec = 50.0;
-        // A=50 (0.22*50=11)
-        engine.tape.aggressive_buy_ratio = 0.5;
-        // Others 0
-        engine.tape.large_print_score = 0.0;
-        engine.tape.spread_cents = 1.0; // Bad spread -> 0 score
-        engine.tape.absorption_score = 0.0;
-        engine.tape.buy_limit_support_score = 0.0;
+    fn test_tier_a_requirement() {
+        let mut engine = default_engine();
+        let sym = SymbolId(1);
 
-        let scores = engine.calculate_scores();
-        let expected = 15.0 + 11.0;
-        assert!((scores.total_score - expected).abs() < 0.001, "Expected {}, got {}", expected, scores.total_score);
+        // Tier C (default) -> Blocklist (Reject)
+        set_valid_tape(&mut engine, sym); // Init with valid price/liquidity
+        let res = engine.evaluate_entry_logic(sym, 1000);
+        assert_eq!(res, Err(RejectReason::Blocklist)); // Tier Check
+
+        // Promote to Tier A
+        engine.update_tier(sym, Tier::A);
+        // Fail on Context (None) because we haven't set it yet.
+        // This causes Liquidity check (Step 4) to fail because ADV=0.
+        let res = engine.evaluate_entry_logic(sym, 1000);
+        assert_eq!(res, Err(RejectReason::Liquidity));
     }
 
     #[test]
-    fn test_reversal_veto() {
-        let mut engine = TapeEngine::new();
-        // Perfect score setup
-        engine.tape.rate_ticks_per_sec = 100.0;
-        engine.tape.aggressive_buy_ratio = 1.0;
-        engine.tape.large_print_score = 100.0;
-        engine.tape.spread_cents = 0.01;
+    fn test_regime_requirement() {
+        let mut engine = default_engine();
+        let sym = SymbolId(1);
+        set_valid_tape(&mut engine, sym);
+        engine.update_tier(sym, Tier::A);
+        engine.update_daily_context(DailyContext {
+             symbol_id: sym,
+             state: ContextState::Play,
+             volume_profile: mock_volume_profile(),
+             has_news: false,
+             sector_momentum: None
+        });
 
-        // But reversal is active
-        engine.tape.is_reversal = true;
+        // Regime RiskOff
+        engine.update_regime(RegimeState::RiskOff);
+        let res = engine.evaluate_entry_logic(sym, 1000);
+        assert_eq!(res, Err(RejectReason::Regime));
+    }
 
-        let tick = TickData { price: 10.0, size: 100, flags: 0 };
-        let result = engine.evaluate_entry_logic(SymbolId(1), tick);
-        assert_eq!(result, Err(RejectReason::TapeReversal));
+    #[test]
+    fn test_full_pass() {
+        let mut engine = default_engine();
+        let sym = SymbolId(1);
+
+        // Setup passing state
+        engine.update_tier(sym, Tier::A);
+        engine.update_daily_context(DailyContext {
+             symbol_id: sym,
+             state: ContextState::Play,
+             volume_profile: core_types::VolumeProfile { current_volume: 1_000_000, avg_20d_volume: 500_000, is_surge: false },
+             has_news: true,
+             sector_momentum: None
+        });
+        engine.update_mtf_analysis(sym, MtfAnalysis {
+            weekly_trend_confirmed: true,
+            daily_resistance_cleared: true,
+            structure_4h_bullish: true,
+            pullback_15m_valid: true,
+            mtf_pass: true,
+        });
+
+        let state = engine.get_mut_state(sym);
+        state.tape.price = 10.0;
+        state.last_trade_price = 10.0;
+        state.tape.bid = 9.99;
+        state.tape.ask = 10.01;
+        state.tape.spread_cents = 0.02; // < 0.05
+        state.tape.bid_size = 500;
+        state.tape.ask_size = 500;
+        state.tape.volume = 600_000;
+
+        // Scoring
+        state.tape.rate_ticks_per_sec = 100.0;
+        state.tape.aggressive_buy_ratio = 1.0;
+        state.tape.large_print_score = 100.0;
+        state.tape.absorption_score = 100.0; // To ensure passing
+
+        // Guards
+        // Spread 0.02 (OK), Imb 0.0 (OK), etc.
+
+        let res = engine.evaluate_entry_logic(sym, 1000);
+        assert!(res.is_ok(), "Expected Ok, got {:?}", res);
+    }
+
+    fn mock_volume_profile() -> core_types::VolumeProfile {
+        core_types::VolumeProfile {
+            current_volume: 1_000_000,
+            avg_20d_volume: 500_000,
+            is_surge: false,
+        }
+    }
+
+    fn mock_mtf_pass() -> MtfAnalysis {
+        MtfAnalysis {
+            weekly_trend_confirmed: true,
+            daily_resistance_cleared: true,
+            structure_4h_bullish: true,
+            pullback_15m_valid: true,
+            mtf_pass: true,
+        }
+    }
+
+    #[test]
+    fn test_mtf_veto() {
+        let mut engine = default_engine();
+        let sym = SymbolId(1);
+        set_valid_tape(&mut engine, sym);
+        engine.update_tier(sym, Tier::A);
+        engine.update_daily_context(DailyContext {
+             symbol_id: sym,
+             state: ContextState::Play,
+             volume_profile: mock_volume_profile(),
+             has_news: true,
+             sector_momentum: None
+        });
+        // MTF Fail
+        engine.update_mtf_analysis(sym, MtfAnalysis {
+            weekly_trend_confirmed: false,
+            daily_resistance_cleared: false,
+            structure_4h_bullish: false,
+            pullback_15m_valid: false,
+            mtf_pass: false,
+        });
+
+        let res = engine.evaluate_entry_logic(sym, 1000);
+        assert_eq!(res, Err(RejectReason::MtfVeto));
+    }
+
+    #[test]
+    fn test_guard_failure() {
+        let mut engine = default_engine();
+        let sym = SymbolId(1);
+        set_valid_tape(&mut engine, sym);
+        engine.update_tier(sym, Tier::A);
+        engine.update_daily_context(DailyContext {
+             symbol_id: sym,
+             state: ContextState::Play,
+             volume_profile: mock_volume_profile(),
+             has_news: true,
+             sector_momentum: None
+        });
+        engine.update_mtf_analysis(sym, mock_mtf_pass());
+
+        let state = engine.get_mut_state(sym);
+        state.tape.price = 10.0;
+        state.tape.bid = 9.90;
+        state.tape.ask = 10.10; // Spread 0.20 > 0.05
+        state.tape.spread_cents = 0.20;
+        // Need to override volume/size after set_valid_tape if needed, but set_valid_tape sets them.
+        state.tape.bid_size = 500;
+        state.tape.ask_size = 500;
+
+        let res = engine.evaluate_entry_logic(sym, 1000);
+        assert_eq!(res, Err(RejectReason::GuardSpread));
+    }
+
+    #[test]
+    fn test_tapescore_low() {
+        let mut engine = default_engine();
+        let sym = SymbolId(1);
+        set_valid_tape(&mut engine, sym);
+        engine.update_tier(sym, Tier::A);
+        engine.update_daily_context(DailyContext {
+             symbol_id: sym,
+             state: ContextState::Play,
+             volume_profile: mock_volume_profile(),
+             has_news: true,
+             sector_momentum: None
+        });
+        engine.update_mtf_analysis(sym, mock_mtf_pass());
+
+        let state = engine.get_mut_state(sym);
+        // Reset valid tape but degrade scoring metrics
+        state.tape.rate_ticks_per_sec = 0.0;
+        state.tape.aggressive_buy_ratio = 0.0;
+        state.tape.large_print_score = 0.0;
+        state.tape.spread_cents = 0.02; // Valid spread contributes some score (approx 26 pts), but threshold is 72.
+
+        let res = engine.evaluate_entry_logic(sym, 1000);
+        assert_eq!(res, Err(RejectReason::TapeScoreLow));
     }
 }

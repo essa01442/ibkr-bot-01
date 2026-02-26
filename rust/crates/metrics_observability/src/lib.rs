@@ -7,7 +7,7 @@ use serde::{Serialize, Deserialize};
 use core_types::{RejectReason, SymbolId};
 use std::collections::VecDeque;
 
-pub const SLA_LIMIT_MICROS: u64 = 5000; // 5ms
+pub const SLA_LIMIT_MICROS: u64 = 10_000; // 10ms per spec §22
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecisionLog {

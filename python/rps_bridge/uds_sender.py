@@ -1,10 +1,14 @@
 import asyncio
 import msgpack
 import socket
+import os
+import pathlib
 
 class UdsSender:
-    def __init__(self, socket_path='/tmp/rps_uds.sock'):
+    def __init__(self, socket_path='/var/run/rps/rps_uds.sock'):
         self.socket_path = socket_path
+        # Create directory with 0o700
+        pathlib.Path(self.socket_path).parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.writer = None
 
     async def connect(self):

@@ -5,6 +5,9 @@ edition = "2021"
 
 [dependencies]
 app_runtime = { path = "../../crates/app_runtime" }
+core_types = { path = "../../crates/core_types" }
 tokio = { workspace = true, features = ["full"] }
 log = { workspace = true }
 env_logger = "0.10"
+toml = { workspace = true }
+serde = { workspace = true }

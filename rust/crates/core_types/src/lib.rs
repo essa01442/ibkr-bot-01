@@ -324,6 +324,9 @@ pub struct RejectData {
 pub mod time_buffer;
 pub use time_buffer::TimeRingBuffer;
 
+pub mod config;
+pub use config::*;
+
 #[cfg(test)]
 mod tests {
     use super::*;

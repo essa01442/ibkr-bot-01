@@ -162,6 +162,18 @@ impl RiskState {
         Ok(())
     }
 
+    /// Rebuilds risk state from broker positions.
+    /// This should be called during the Reconnect phase.
+    /// Note: Does not reconstruct daily PnL automatically unless provided.
+    pub fn rebuild_state(&mut self, positions: Vec<core_types::PositionData>) {
+        self.open_positions = positions.len();
+        // In a real system, we might query Realized PnL from the broker here.
+        // For now, we assume local state (persistence) is the source of truth for PnL,
+        // and we only sync open position count for exposure checks.
+
+        // Also update exposure validator if needed (not fully mapped here without symbol details)
+    }
+
     // Persistence
     pub fn save_to_file(&self, path: &Path) -> std::io::Result<()> {
         let file = File::create(path)?;
@@ -242,6 +254,10 @@ mod tests {
     fn test_max_daily_loss() {
         let mut risk = default_risk_state(); // Max loss 100
         let symbol = SymbolId(1);
+
+        risk.update_pnl(-50.0);
+        assert!(risk.check_entry(symbol, &[]).is_ok());
+
 
         risk.update_pnl(-50.0);
         assert!(risk.check_entry(symbol, &[]).is_ok());

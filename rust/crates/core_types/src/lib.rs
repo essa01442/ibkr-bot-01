@@ -247,6 +247,21 @@ pub enum EventKind {
     OrderStatus(OrderStatusData),
     Reject(RejectData),
     Heartbeat,
+    Reconnect,
+    StateSync(StateSyncData),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateSyncData {
+    pub open_orders: Vec<Order>,
+    pub positions: Vec<PositionData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionData {
+    pub symbol_id: SymbolId,
+    pub qty: i32,
+    pub avg_cost: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

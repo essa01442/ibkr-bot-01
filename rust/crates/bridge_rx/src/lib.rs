@@ -39,7 +39,9 @@ impl QosPriority {
             EventKind::Tick(_) => QosPriority::High,
             EventKind::L2Delta(_) => QosPriority::Medium,
             EventKind::Snapshot(_) => QosPriority::Low,
-            EventKind::Heartbeat => QosPriority::Low, // Heartbeats can be dropped if system is overloaded, but we track time
+            EventKind::Heartbeat => QosPriority::Low,
+            EventKind::Reconnect => QosPriority::Critical, // Critical control event
+            EventKind::StateSync(_) => QosPriority::Critical, // Critical control event
         }
     }
 }

@@ -216,6 +216,21 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Heartbeat => {
                      let _ = risk_tx.try_send(event.clone());
                 }
+                EventKind::Reconnect => {
+                    log::warn!("Bridge Reconnected - Triggering Sync");
+                    // Route to all components that need reset
+                    let _ = oms_tx.try_send(event.clone());
+                    let _ = risk_tx.try_send(event.clone());
+                    let _ = fast_tx.try_send(event.clone());
+                }
+                EventKind::StateSync(_) => {
+                    log::info!("Received StateSync");
+                    // Sync events go to OMS and Risk primarily
+                    let _ = oms_tx.try_send(event.clone());
+                    let _ = risk_tx.try_send(event.clone());
+                    // Also FastLoop needs to know about positions for PnL
+                    let _ = fast_tx.try_send(event.clone());
+                }
             }
         }
     });

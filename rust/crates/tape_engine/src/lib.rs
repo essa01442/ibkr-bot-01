@@ -208,6 +208,10 @@ impl TapeEngine {
                 if state.position == 0 {
                     state.avg_cost = 0.0;
                 } else if (prev_position > 0 && state.position < 0) || (prev_position < 0 && state.position > 0) {
+                state.position += signed_fill_size;
+                if state.position == 0 {
+                    state.avg_cost = 0.0;
+                } else if (state.position > 0 && signed_fill_size < 0 && state.position < 0) || (state.position < 0 && signed_fill_size > 0 && state.position > 0) {
                     // Position flipped. The remaining part is new open.
                     // If flipped, avg_cost should reset to fill_price for the remainder.
                     state.avg_cost = fill_price;

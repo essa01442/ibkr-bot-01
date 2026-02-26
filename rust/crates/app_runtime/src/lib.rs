@@ -96,6 +96,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             risk_engine::RiskState::new(100.0, core_types::LiquidityConfig::default())
         };
 
+        // Initialize Risk and Tape Engine with MaxDailyLoss = 100.0
+        let risk_state = risk_engine::RiskState::new(
+            100.0,
+            core_types::LiquidityConfig::default()
+        );
         let guard_config = risk_engine::guards::GuardConfig::default();
         let mut tape_engine = tape_engine::TapeEngine::new(risk_state, guard_config);
 

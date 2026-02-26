@@ -4,6 +4,7 @@
 //! Handles pacing, upgrades, downgrades, and slow-moving context analysis (MTF, Correlation).
 
 use core_types::{SymbolId, Tier, SubscriptionStatus, ColdStartState};
+use core_types::{SymbolId, Tier, SubscriptionStatus};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 
@@ -214,6 +215,464 @@ impl Watchlist {
         if let Some(data) = self.get_data_mut(symbol_id) {
             data.tick_count += 1;
         }
+
+        // Candidates start in Tier C
+        self.tier_c.insert(symbol_id, TierData::new(Tier::C));
+        Ok(())
+    }
+
+    pub fn promote(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
+        let current_tier = self.get_tier(symbol_id).ok_or("Symbol not in watchlist")?;
+
+        match current_tier {
+            Tier::C => {
+                // C -> B
+                if self.tier_b.len() >= MAX_TIER_B {
+                    return Err("Tier B full");
+                }
+
+                if self.total_subscriptions() >= MAX_TOTAL_SUBSCRIPTIONS {
+                    return Err("Max subscriptions reached");
+                }
+
+                let mut data = self.tier_c.remove(&symbol_id).unwrap();
+
+                if data.tick_count < TICK_READY_THRESHOLD {
+                     self.tier_c.insert(symbol_id, data);
+                    return Err("Not TickReady");
+                }
+
+                data.tier = Tier::B;
+                data.subscription_status = SubscriptionStatus::Pending;
+                self.tier_b.insert(symbol_id, data);
+            },
+            Tier::B => {
+                // B -> A
+                 if self.tier_a.len() >= MAX_TIER_A {
+                    return Err("Tier A full");
+                }
+                // A also consumes a subscription, but B already has one.
+                // Assuming A and B both count as 1 subscription (just different processing).
+
+                 let mut data = self.tier_b.remove(&symbol_id).unwrap();
+
+                 // Reuse TickReady check or strict check
+                 if data.tick_count < TICK_READY_THRESHOLD {
+                     self.tier_b.insert(symbol_id, data);
+                     return Err("Not TickReady for Tier A");
+                 }
+
+                data.tier = Tier::A;
+                self.tier_a.insert(symbol_id, data);
+            },
+            Tier::A => return Err("Already in Tier A"),
+        }
+        Ok(())
+    }
+
+    pub fn demote(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
+         let current_tier = self.get_tier(symbol_id).ok_or("Symbol not in watchlist")?;
+
+         match current_tier {
+             Tier::A => {
+                 let mut data = self.tier_a.remove(&symbol_id).unwrap();
+                 data.tier = Tier::B;
+                 self.tier_b.insert(symbol_id, data);
+             },
+             Tier::B => {
+                 let mut data = self.tier_b.remove(&symbol_id).unwrap();
+                 data.tier = Tier::C;
+                 data.subscription_status = SubscriptionStatus::None;
+                 self.tier_c.insert(symbol_id, data);
+             },
+             Tier::C => {
+                 self.tier_c.remove(&symbol_id);
+             }
+         }
+         Ok(())
+    }
+
+    pub fn update_tick_count(&mut self, symbol_id: SymbolId) {
+        if let Some(data) = self.get_data_mut(symbol_id) {
+            data.tick_count += 1;
+        }
+        if self.tier_c.len() >= MAX_TIER_C {
+            return Err("Tier C full");
+        }
+
+        // Candidates start in Tier C
+        self.tier_c.insert(symbol_id, TierData::new(Tier::C));
+        Ok(())
+    }
+
+    pub fn promote(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
+        let current_tier = self.get_tier(symbol_id).ok_or("Symbol not in watchlist")?;
+
+        match current_tier {
+            Tier::C => {
+                // C -> B
+                if self.tier_b.len() >= MAX_TIER_B {
+                    return Err("Tier B full");
+                }
+
+                if self.total_subscriptions() >= MAX_TOTAL_SUBSCRIPTIONS {
+                    return Err("Max subscriptions reached");
+                }
+
+                let mut data = self.tier_c.remove(&symbol_id).unwrap();
+
+                if data.tick_count < TICK_READY_THRESHOLD {
+                     self.tier_c.insert(symbol_id, data);
+                    return Err("Not TickReady");
+                }
+
+                data.tier = Tier::B;
+                data.subscription_status = SubscriptionStatus::Pending;
+                self.tier_b.insert(symbol_id, data);
+            },
+            Tier::B => {
+                // B -> A
+                 if self.tier_a.len() >= MAX_TIER_A {
+                    return Err("Tier A full");
+                }
+                // A also consumes a subscription, but B already has one.
+                // Assuming A and B both count as 1 subscription (just different processing).
+
+                 let mut data = self.tier_b.remove(&symbol_id).unwrap();
+
+                 // Reuse TickReady check or strict check
+                 if data.tick_count < TICK_READY_THRESHOLD {
+                     self.tier_b.insert(symbol_id, data);
+                     return Err("Not TickReady for Tier A");
+                 }
+
+                data.tier = Tier::A;
+                self.tier_a.insert(symbol_id, data);
+            },
+            Tier::A => return Err("Already in Tier A"),
+        }
+        Ok(())
+    }
+
+    pub fn demote(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
+         let current_tier = self.get_tier(symbol_id).ok_or("Symbol not in watchlist")?;
+
+         match current_tier {
+             Tier::A => {
+                 let mut data = self.tier_a.remove(&symbol_id).unwrap();
+                 data.tier = Tier::B;
+                 self.tier_b.insert(symbol_id, data);
+             },
+             Tier::B => {
+                 let mut data = self.tier_b.remove(&symbol_id).unwrap();
+                 data.tier = Tier::C;
+                 data.subscription_status = SubscriptionStatus::None;
+                 self.tier_c.insert(symbol_id, data);
+             },
+             Tier::C => {
+                 self.tier_c.remove(&symbol_id);
+             }
+         }
+         Ok(())
+    }
+
+    pub fn update_tick_count(&mut self, symbol_id: SymbolId) {
+        if let Some(data) = self.get_data_mut(symbol_id) {
+            data.tick_count += 1;
+        }
+    }
+
+    pub fn total_subscriptions(&self) -> usize {
+        // Assuming Tier A and B consume subscriptions
+        self.tier_a.len() + self.tier_b.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_promotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        // Try promote without ticks
+        assert!(wl.promote(sym).is_err());
+
+        // Add ticks
+        for _ in 0..TICK_READY_THRESHOLD {
+            wl.update_tick_count(sym);
+        }
+
+        // Promote C -> B
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        // Promote B -> A
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::A));
+
+        // Promote A -> Error
+        assert!(wl.promote(sym).is_err());
+    }
+
+    #[test]
+    fn test_demotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        // Fake ticks
+        if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+
+        wl.promote(sym).unwrap(); // B
+        wl.promote(sym).unwrap(); // A
+
+        wl.demote(sym).unwrap(); // B
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        wl.demote(sym).unwrap(); // C
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        wl.demote(sym).unwrap(); // Removed
+        assert_eq!(wl.get_tier(sym), None);
+    }
+
+    #[test]
+    fn test_subscription_limits() {
+        let mut wl = Watchlist::new();
+        // Fill up subscriptions
+        for i in 0..MAX_TOTAL_SUBSCRIPTIONS {
+            let sym = SymbolId(i as u32);
+            wl.add_candidate(sym).unwrap();
+            if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+            wl.promote(sym).unwrap(); // To Tier B
+        }
+
+        let extra = SymbolId(1000);
+        wl.add_candidate(extra).unwrap();
+        if let Some(d) = wl.get_data_mut(extra) { d.tick_count = 100; }
+
+        // Should fail
+        assert!(wl.promote(extra).is_err());
+    }
+
+    pub fn total_subscriptions(&self) -> usize {
+        // Assuming Tier A and B consume subscriptions
+        self.tier_a.len() + self.tier_b.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_promotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        // Try promote without ticks
+        assert!(wl.promote(sym).is_err());
+
+        // Add ticks
+        for _ in 0..TICK_READY_THRESHOLD {
+            wl.update_tick_count(sym);
+        }
+
+        // Promote C -> B
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        // Promote B -> A
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::A));
+
+        // Promote A -> Error
+        assert!(wl.promote(sym).is_err());
+    }
+
+    #[test]
+    fn test_demotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        // Fake ticks
+        if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+
+        wl.promote(sym).unwrap(); // B
+        wl.promote(sym).unwrap(); // A
+
+        wl.demote(sym).unwrap(); // B
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        wl.demote(sym).unwrap(); // C
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        wl.demote(sym).unwrap(); // Removed
+        assert_eq!(wl.get_tier(sym), None);
+    }
+
+    #[test]
+    fn test_subscription_limits() {
+        let mut wl = Watchlist::new();
+        // Fill up subscriptions
+        for i in 0..MAX_TOTAL_SUBSCRIPTIONS {
+            let sym = SymbolId(i as u32);
+            wl.add_candidate(sym).unwrap();
+            if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+            wl.promote(sym).unwrap(); // To Tier B
+        }
+
+        let extra = SymbolId(1000);
+        wl.add_candidate(extra).unwrap();
+        if let Some(d) = wl.get_data_mut(extra) { d.tick_count = 100; }
+
+        // Should fail
+        assert!(wl.promote(extra).is_err());
+    }
+
+    #[test]
+    fn test_cold_start_controller() {
+        let mut data = TierData::new(Tier::B);
+        assert_eq!(data.cold_start_state, ColdStartState::ColdStart);
+        assert_eq!(data.acceleration_weight(), 0.0);
+
+        // First update -> WarmActive
+        data.update_cold_start(false);
+        assert_eq!(data.cold_start_state, ColdStartState::WarmActive);
+        assert_eq!(data.acceleration_weight(), 0.5);
+
+        // Update loop until FullActive
+        for _ in 0..WARM_BUFFER_TICKS {
+            data.update_cold_start(false);
+        }
+        assert_eq!(data.cold_start_state, ColdStartState::FullActive);
+        assert_eq!(data.acceleration_weight(), 1.0);
+    }
+
+    #[test]
+    fn test_surge_override() {
+        let mut data = TierData::new(Tier::B);
+        // Surge -> FullActive immediately
+        data.update_cold_start(true);
+        assert_eq!(data.cold_start_state, ColdStartState::FullActive);
+        assert_eq!(data.acceleration_weight(), 1.0);
+    }
+
+    pub fn total_subscriptions(&self) -> usize {
+        // Assuming Tier A and B consume subscriptions
+        self.tier_a.len() + self.tier_b.len()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_promotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        // Try promote without ticks
+        assert!(wl.promote(sym).is_err());
+
+        // Add ticks
+        for _ in 0..TICK_READY_THRESHOLD {
+            wl.update_tick_count(sym);
+        }
+
+        // Promote C -> B
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        // Promote B -> A
+        wl.promote(sym).unwrap();
+        assert_eq!(wl.get_tier(sym), Some(Tier::A));
+
+        // Promote A -> Error
+        assert!(wl.promote(sym).is_err());
+    }
+
+    #[test]
+    fn test_demotion_path() {
+        let mut wl = Watchlist::new();
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym).unwrap();
+        // Fake ticks
+        if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+
+        wl.promote(sym).unwrap(); // B
+        wl.promote(sym).unwrap(); // A
+
+        wl.demote(sym).unwrap(); // B
+        assert_eq!(wl.get_tier(sym), Some(Tier::B));
+
+        wl.demote(sym).unwrap(); // C
+        assert_eq!(wl.get_tier(sym), Some(Tier::C));
+
+        wl.demote(sym).unwrap(); // Removed
+        assert_eq!(wl.get_tier(sym), None);
+    }
+
+    #[test]
+    fn test_subscription_limits() {
+        let mut wl = Watchlist::new();
+        // Fill up subscriptions
+        for i in 0..MAX_TOTAL_SUBSCRIPTIONS {
+            let sym = SymbolId(i as u32);
+            wl.add_candidate(sym).unwrap();
+            if let Some(d) = wl.get_data_mut(sym) { d.tick_count = 100; }
+            wl.promote(sym).unwrap(); // To Tier B
+        }
+
+        let extra = SymbolId(1000);
+        wl.add_candidate(extra).unwrap();
+        if let Some(d) = wl.get_data_mut(extra) { d.tick_count = 100; }
+
+        // Should fail
+        assert!(wl.promote(extra).is_err());
+    }
+
+    #[test]
+    fn test_cold_start_controller() {
+        let mut data = TierData::new(Tier::B);
+        assert_eq!(data.cold_start_state, ColdStartState::ColdStart);
+        assert_eq!(data.acceleration_weight(), 0.0);
+
+        // First update -> WarmActive
+        data.update_cold_start(false);
+        assert_eq!(data.cold_start_state, ColdStartState::WarmActive);
+        assert_eq!(data.acceleration_weight(), 0.5);
+
+        // Update loop until FullActive
+        for _ in 0..WARM_BUFFER_TICKS {
+            data.update_cold_start(false);
+        }
+        assert_eq!(data.cold_start_state, ColdStartState::FullActive);
+        assert_eq!(data.acceleration_weight(), 1.0);
+    }
+
+    #[test]
+    fn test_surge_override() {
+        let mut data = TierData::new(Tier::B);
+        // Surge -> FullActive immediately
+        data.update_cold_start(true);
+        assert_eq!(data.cold_start_state, ColdStartState::FullActive);
+        assert_eq!(data.acceleration_weight(), 1.0);
     }
 
     pub fn total_subscriptions(&self) -> usize {

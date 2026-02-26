@@ -1,21 +1,3 @@
-//! Core Types Crate.
-//!
-//! # Canonical Event Schema
-//!
-//! This module defines the canonical memory layout for the `Event` structure.
-//! It is designed for zero-allocation processing in the FastLoop.
-//!
-//! ## Memory Alignment
-//! - The `Event` struct uses `#[repr(C)]` to ensure predictable memory layout.
-//! - The `EventKind` enum is `#[repr(u8)]` to keep the discriminant small.
-//! - All timestamps are `u64` (microseconds).
-//! - `SymbolId` is `u32`.
-//! - `Seq` is `u64`.
-//!
-//! ## Serialization
-//! - `serde` derives are included for MessagePack (dev/debug).
-//! - In production, this struct maps directly to a FlatBuffers schema.
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -258,6 +240,10 @@ pub struct RejectData {
     pub reason: RejectReason,
     pub code: u16, // Optional error code from exchange
 }
+
+// Re-export time_buffer
+pub mod time_buffer;
+pub use time_buffer::TimeRingBuffer;
 
 #[cfg(test)]
 mod tests {

@@ -22,6 +22,9 @@ use tokio::sync::mpsc;
 use std::sync::Arc;
 use arc_swap::ArcSwap;
 use watchlist_engine::WatchlistSnapshot;
+use std::path::Path;
+
+const RISK_STATE_PATH: &str = "risk_state.json";
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = ChannelConfig::default();
@@ -78,6 +81,21 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // For now, let's just log.
     task::spawn(async move {
         log::info!("FastLoop Task started");
+
+        // Load Risk State from file or create new
+        let risk_state = if Path::new(RISK_STATE_PATH).exists() {
+            log::info!("Loading persistent risk state from {}", RISK_STATE_PATH);
+            match risk_engine::RiskState::load_from_file(Path::new(RISK_STATE_PATH)) {
+                Ok(state) => state,
+                Err(e) => {
+                    log::error!("Failed to load risk state: {}. Starting fresh.", e);
+                    risk_engine::RiskState::new(100.0, core_types::LiquidityConfig::default())
+                }
+            }
+        } else {
+            risk_engine::RiskState::new(100.0, core_types::LiquidityConfig::default())
+        };
+
         // Initialize Risk and Tape Engine with MaxDailyLoss = 100.0
         let risk_state = risk_engine::RiskState::new(
             100.0,
@@ -105,6 +123,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 // Signal entry
                 // send_order(...)
+            }
+
+            // Persist RiskState on Fills (critical updates)
+            // Ideally this is async or offloaded, but for now we do it inline or check event type
+            if let core_types::EventKind::Fill(_) = event.kind {
+                if let Err(e) = tape_engine.risk_state.save_to_file(Path::new(RISK_STATE_PATH)) {
+                    log::error!("Failed to persist risk state: {}", e);
+                }
             }
         }
     });

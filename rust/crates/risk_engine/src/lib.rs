@@ -19,6 +19,7 @@ use std::io::BufReader;
 
 pub mod guards;
 pub mod sizing;
+pub mod exposure;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RiskLadderStep {
@@ -37,6 +38,8 @@ pub struct RiskState {
     pub liquidity_config: LiquidityConfig,
     pub monitor_only: bool,
     pub risk_ladder: Vec<RiskLadderStep>,
+    #[serde(skip)] // Do not persist exposure cache
+    pub exposure_validator: exposure::ExposureValidator,
 }
 
 impl RiskState {
@@ -51,6 +54,7 @@ impl RiskState {
             liquidity_config,
             monitor_only: false,
             risk_ladder: Vec::new(),
+            exposure_validator: exposure::ExposureValidator::new(),
         }
     }
 
@@ -106,6 +110,7 @@ impl RiskState {
         self.monitor_only = monitor_only;
     }
 
+    pub fn check_entry(&self, symbol_id: SymbolId, open_symbols: &[SymbolId]) -> Result<(), RejectReason> {
     pub fn check_entry(&self, symbol_id: SymbolId) -> Result<(), RejectReason> {
         if self.monitor_only {
             return Err(RejectReason::MonitorOnly);
@@ -122,6 +127,10 @@ impl RiskState {
         if self.should_terminate() {
             return Err(RejectReason::MaxDailyLoss);
         }
+
+        // Check Exposure
+        self.exposure_validator.check_new_position(symbol_id, open_symbols)?;
+
         Ok(())
     }
 
@@ -183,6 +192,21 @@ mod tests {
         let mut risk = default_risk_state();
         let symbol = SymbolId(1);
 
+        // Initially allowed (implicitly)
+        assert!(risk.check_entry(symbol, &[]).is_ok());
+
+        // Set to Watch - should still be allowed
+        risk.set_corporate_action(symbol, CorporateAction::Watch);
+        assert!(risk.check_entry(symbol, &[]).is_ok());
+        assert!(!risk.blocklist.contains(&symbol));
+
+        // Set to Block - should be blocked
+        risk.set_corporate_action(symbol, CorporateAction::Block);
+        assert!(risk.blocklist.contains(&symbol));
+
+        match risk.check_entry(symbol, &[]) {
+            Err(RejectReason::CorporateActionBlock) => (),
+            _ => panic!("Expected CorporateActionBlock"),
         assert!(risk.check_entry(symbol).is_ok());
 
         risk.set_monitor_only(true);
@@ -210,6 +234,10 @@ mod tests {
         }
         assert!(risk.should_terminate());
 
+        risk.block_symbol(symbol);
+        match risk.check_entry(symbol, &[]) {
+            Err(RejectReason::Blocklist) => (),
+            _ => panic!("Expected Blocklist"),
         risk.update_pnl(-101.0);
         match risk.check_entry(symbol) {
             Err(RejectReason::MaxDailyLoss) => (),
@@ -219,6 +247,87 @@ mod tests {
     }
 
     #[test]
+    fn test_monitor_only() {
+        let mut risk = default_risk_state();
+        let symbol = SymbolId(1);
+
+        assert!(risk.check_entry(symbol, &[]).is_ok());
+
+        risk.set_monitor_only(true);
+        match risk.check_entry(symbol, &[]) {
+            Err(RejectReason::MonitorOnly) => (),
+            _ => panic!("Expected MonitorOnly"),
+        }
+
+        risk.set_monitor_only(false);
+        assert!(risk.check_entry(symbol, &[]).is_ok());
+    }
+
+    #[test]
+    fn test_max_daily_loss() {
+        let mut risk = default_risk_state(); // Max loss 100
+        let symbol = SymbolId(1);
+
+        risk.update_pnl(-50.0);
+        assert!(risk.check_entry(symbol, &[]).is_ok());
+
+        risk.update_pnl(-100.0);
+        match risk.check_entry(symbol, &[]) {
+            Err(RejectReason::MaxDailyLoss) => (),
+            _ => panic!("Expected MaxDailyLoss at -100"),
+        }
+        assert!(risk.should_terminate());
+
+        risk.update_pnl(-101.0);
+        match risk.check_entry(symbol, &[]) {
+            Err(RejectReason::MaxDailyLoss) => (),
+            _ => panic!("Expected MaxDailyLoss at -101"),
+        }
+        assert!(risk.should_terminate());
+    }
+
+    #[test]
+    fn test_risk_ladder() {
+        let mut risk = default_risk_state(); // Max loss 100
+        // Ladder:
+        // At 50 profit, max loss becomes 50 (stop at -50).
+        // At 100 profit, max loss becomes 0 (stop at 0).
+        // At 200 profit, max loss becomes -50 (stop at +50).
+        let ladder = vec![
+            RiskLadderStep { profit_threshold: 50.0, max_daily_loss: 50.0 },
+            RiskLadderStep { profit_threshold: 100.0, max_daily_loss: 0.0 },
+            RiskLadderStep { profit_threshold: 200.0, max_daily_loss: -50.0 },
+        ];
+        risk.set_risk_ladder(ladder);
+
+        // Scenario 1: No profit
+        risk.update_pnl(0.0);
+        assert!(!risk.should_terminate()); // stop at -100
+        risk.update_pnl(-90.0);
+        assert!(!risk.should_terminate());
+        risk.update_pnl(-100.0);
+        assert!(risk.should_terminate());
+
+        // Scenario 2: +60 profit (crossed 50 threshold) -> max loss 50 (stop at -50)
+        risk.update_pnl(60.0);
+        assert!(!risk.should_terminate());
+        // Drop to -40
+        risk.update_pnl(-40.0);
+        assert!(!risk.should_terminate());
+        // Drop to -50
+        risk.update_pnl(-50.0);
+        assert!(risk.should_terminate());
+
+        // Scenario 3: +150 profit (crossed 100 threshold) -> max loss 0 (stop at 0)
+        risk.update_pnl(150.0);
+        assert!(!risk.should_terminate());
+        // Drop to 10
+        risk.update_pnl(10.0);
+        assert!(!risk.should_terminate());
+        // Drop to 0
+        risk.update_pnl(0.0);
+        assert!(risk.should_terminate());
+
     fn test_risk_ladder() {
         let mut risk = default_risk_state(); // Max loss 100
         // Ladder:

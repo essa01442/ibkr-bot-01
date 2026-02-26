@@ -202,6 +202,12 @@ impl TapeEngine {
                 // Update Global Realized
                 self.global_realized_pnl += trade_pnl;
 
+                let prev_position = state.position;
+                state.position += signed_fill_size;
+
+                if state.position == 0 {
+                    state.avg_cost = 0.0;
+                } else if (prev_position > 0 && state.position < 0) || (prev_position < 0 && state.position > 0) {
                 state.position += signed_fill_size;
                 if state.position == 0 {
                     state.avg_cost = 0.0;
@@ -240,7 +246,16 @@ impl TapeEngine {
         }
 
         // 1. Blocklist Check
-        if self.risk_state.check_entry(symbol).is_err() {
+        // Pass open positions to check_entry for exposure validation
+        // In simulation, we need a list of open symbols.
+        // We can iterate symbol_states where position != 0
+        let open_symbols: Vec<SymbolId> = self.symbol_states
+            .iter()
+            .filter(|(_, state)| state.position != 0)
+            .map(|(id, _)| *id)
+            .collect();
+
+        if self.risk_state.check_entry(symbol, &open_symbols).is_err() {
             return Err(RejectReason::Blocklist);
         }
 

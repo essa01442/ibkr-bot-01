@@ -73,6 +73,27 @@ pub enum CorporateAction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiquidityConfig {
+    pub target_price_min: f64,
+    pub target_price_max: f64,
+    pub max_spread_pct: f64,
+    pub min_avg_daily_volume: u64,
+    pub min_addv_usd: f64,
+}
+
+impl Default for LiquidityConfig {
+    fn default() -> Self {
+        Self {
+            target_price_min: 1.0,
+            target_price_max: 20.0,
+            max_spread_pct: 0.05, // 5%
+            min_avg_daily_volume: 500_000,
+            min_addv_usd: 1_000_000.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Event {
     /// Source timestamp (exchange time) in microseconds.

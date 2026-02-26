@@ -13,6 +13,57 @@ pub enum Side {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
+pub enum OrderType {
+    Limit = 0,
+    Market = 1,
+    Stop = 2,
+    StopLimit = 3,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum TimeInForce {
+    Day = 0,
+    GTC = 1,
+    IOC = 2,
+    FOK = 3,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderRequest {
+    pub symbol_id: SymbolId,
+    pub side: Side,
+    pub qty: u32,
+    pub order_type: OrderType,
+    pub limit_price: Option<f64>,
+    pub stop_price: Option<f64>,
+    pub tif: TimeInForce,
+    pub idempotency_key: String,
+    // Attached Bracket Orders
+    pub take_profit_price: Option<f64>,
+    pub stop_loss_price: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Order {
+    pub order_id: u64, // Internal ID
+    pub client_order_id: String, // Idempotency Key
+    pub broker_order_id: Option<String>,
+    pub symbol_id: SymbolId,
+    pub side: Side,
+    pub qty: u32,
+    pub filled_qty: u32,
+    pub avg_fill_price: f64,
+    pub order_type: OrderType,
+    pub limit_price: Option<f64>,
+    pub stop_price: Option<f64>,
+    pub status: OrderStatus,
+    pub created_at: u64, // Microseconds
+    pub updated_at: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum OrderStatus {
     Pending = 0,
     Live = 1,
@@ -43,6 +94,8 @@ pub enum RejectReason {
     NetNegative = 15,
     Exposure = 16,
     TapeReversal = 17,
+    MonitorOnly = 18,
+    MaxDailyLoss = 19,
     Unknown = 255,
 }
 
@@ -194,6 +247,21 @@ pub enum EventKind {
     OrderStatus(OrderStatusData),
     Reject(RejectData),
     Heartbeat,
+    Reconnect,
+    StateSync(StateSyncData),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateSyncData {
+    pub open_orders: Vec<Order>,
+    pub positions: Vec<PositionData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PositionData {
+    pub symbol_id: SymbolId,
+    pub qty: i32,
+    pub avg_cost: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

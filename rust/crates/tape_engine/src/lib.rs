@@ -33,6 +33,11 @@ pub struct SymbolState {
     pub mtf_analysis: Option<MtfAnalysis>,
     pub tape: TapeMetrics,
     pub last_trade_price: f64,
+    // PnL Tracking
+    pub position: i32,
+    pub avg_cost: f64,
+    pub realized_pnl: f64,
+    pub current_unrealized_pnl: f64,
 }
 
 impl SymbolState {
@@ -43,6 +48,10 @@ impl SymbolState {
             mtf_analysis: None,
             tape: TapeMetrics::default(),
             last_trade_price: 0.0,
+            position: 0,
+            avg_cost: 0.0,
+            realized_pnl: 0.0,
+            current_unrealized_pnl: 0.0,
         }
     }
 }
@@ -78,6 +87,10 @@ pub struct TapeEngine {
 
     // Per-Symbol State
     pub symbol_states: HashMap<SymbolId, SymbolState>,
+
+    // Global PnL Cache
+    pub global_realized_pnl: f64,
+    pub global_unrealized_pnl: f64,
 }
 
 impl TapeEngine {
@@ -87,6 +100,8 @@ impl TapeEngine {
             regime_state: RegimeState::Normal, // Default
             guard_evaluator: GuardEvaluator::new(guard_config),
             symbol_states: HashMap::new(),
+            global_realized_pnl: 0.0,
+            global_unrealized_pnl: 0.0,
         }
     }
 
@@ -108,6 +123,10 @@ impl TapeEngine {
         self.regime_state = regime;
     }
 
+    pub fn should_terminate(&self) -> bool {
+        self.risk_state.should_terminate()
+    }
+
     // --- Event Processing (Fast Loop Interface) ---
     pub fn on_event(&mut self, event: &Event) -> Result<(), RejectReason> {
         // Track event activity (Flicker check)
@@ -124,18 +143,93 @@ impl TapeEngine {
                 state.tape.spread_cents = snap.ask_price - snap.bid_price;
                 Ok(())
             },
+            EventKind::Fill(fill) => self.process_fill(event.symbol_id, fill),
             _ => Ok(()),
         }
     }
 
     fn process_tick(&mut self, symbol: SymbolId, ts_src: u64, tick: TickData) -> Result<(), RejectReason> {
-        let state = self.get_mut_state(symbol);
+        // We cannot use get_mut_state directly because we need to update global pnl
+        // which requires mutable self.
+
+        let state = self.symbol_states.entry(symbol).or_insert_with(SymbolState::new);
         state.tape.price = tick.price;
         state.last_trade_price = tick.price; // Simplified for now
 
-        // In a real system, we'd update tape metrics here based on tick flow
+        // Update Unrealized PnL
+        if state.position != 0 {
+            let new_unrealized = (tick.price - state.avg_cost) * state.position as f64;
+            let delta = new_unrealized - state.current_unrealized_pnl;
+            state.current_unrealized_pnl = new_unrealized;
+
+            // Update Global
+            self.global_unrealized_pnl += delta;
+            self.risk_state.update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+        }
 
         self.evaluate_entry_logic(symbol, ts_src)
+    }
+
+    fn process_fill(&mut self, symbol: SymbolId, fill: core_types::FillData) -> Result<(), RejectReason> {
+        let state = self.symbol_states.entry(symbol).or_insert_with(SymbolState::new);
+
+        let fill_size = fill.size as i32;
+        let signed_fill_size = if fill.side == core_types::Side::Bid { fill_size } else { -fill_size };
+        let fill_price = fill.price;
+
+        if state.position == 0 {
+            state.position = signed_fill_size;
+            state.avg_cost = fill_price;
+        } else {
+            // Check if increasing or reducing
+            let same_side = (state.position > 0 && signed_fill_size > 0) || (state.position < 0 && signed_fill_size < 0);
+
+            if same_side {
+                // Weighted Average Cost
+                let total_cost = (state.position as f64 * state.avg_cost) + (signed_fill_size as f64 * fill_price);
+                state.position += signed_fill_size;
+                state.avg_cost = total_cost / state.position as f64;
+            } else {
+                // Realize PnL
+                // Portion of position closed is min(abs(pos), abs(fill))
+                let close_qty = std::cmp::min(state.position.abs(), signed_fill_size.abs());
+                // The signed amount of closing
+                let signed_close_qty = if state.position > 0 { -close_qty } else { close_qty };
+
+                let trade_pnl = (fill_price - state.avg_cost) * (-signed_close_qty as f64);
+                state.realized_pnl += trade_pnl;
+
+                // Update Global Realized
+                self.global_realized_pnl += trade_pnl;
+
+                let prev_position = state.position;
+                state.position += signed_fill_size;
+
+                if state.position == 0 {
+                    state.avg_cost = 0.0;
+                } else if (prev_position > 0 && state.position < 0) || (prev_position < 0 && state.position > 0) {
+                    // Position flipped. The remaining part is new open.
+                    // If flipped, avg_cost should reset to fill_price for the remainder.
+                    state.avg_cost = fill_price;
+                }
+            }
+        }
+
+        // Update Risk State
+        let current_price = if state.tape.price > 0.0 { state.tape.price } else { fill_price };
+        let new_unrealized = if state.position != 0 {
+            (current_price - state.avg_cost) * state.position as f64
+        } else {
+            0.0
+        };
+
+        let delta_unrealized = new_unrealized - state.current_unrealized_pnl;
+        state.current_unrealized_pnl = new_unrealized;
+        self.global_unrealized_pnl += delta_unrealized;
+
+        self.risk_state.update_pnl(self.global_realized_pnl + self.global_unrealized_pnl);
+
+        Ok(())
     }
 
     /// The 12-Step Locked Decision Pipeline
@@ -148,54 +242,22 @@ impl TapeEngine {
         }
 
         // 1. Blocklist Check
-        if self.risk_state.check_entry(symbol).is_err() {
+        // Pass open positions to check_entry for exposure validation
+        // In simulation, we need a list of open symbols.
+        // We can iterate symbol_states where position != 0
+        let open_symbols: Vec<SymbolId> = self.symbol_states
+            .iter()
+            .filter(|(_, state)| state.position != 0)
+            .map(|(id, _)| *id)
+            .collect();
+
+        if self.risk_state.check_entry(symbol, &open_symbols).is_err() {
             return Err(RejectReason::Blocklist);
         }
 
         // 2. Corporate Actions Gate (Covered by check_entry)
 
         // 3. Price Range & 4. Liquidity (RiskState)
-        let (adv, addv_usd) = match &state.daily_context {
-            Some(ctx) => {
-                let adv = ctx.volume_profile.avg_20d_volume;
-                (adv, adv as f64 * state.tape.price)
-            },
-            None => (0, 0.0)
-        };
-
-        if let Err(e) = self.risk_state.check_liquidity(
-            state.tape.price,
-            state.tape.spread_cents / state.tape.price, // spread pct
-            adv,
-            addv_usd
-        ) {
-            return Err(e);
-        }
-
-
-        // 0. Pre-Gate: Tier A Only (User Requirement)
-        if state.tier != Tier::A {
-            // If not Tier A, we reject early? Or implies "Not Watchlist"?
-            // Prompt says: "Tier A only". Assuming for *entry*.
-            // We reuse Blocklist reason or maybe Unknown/Blocklist?
-            // "Blocklist" fits best as "Not allowed to trade".
-            // Actually, usually Tier B/C are candidates. If "Tier A only" entry is strict:
-            return Err(RejectReason::Blocklist);
-        }
-
-        // 1. Blocklist Check
-        if self.risk_state.check_entry(symbol).is_err() {
-            return Err(RejectReason::Blocklist);
-        }
-
-        // 2. Corporate Actions Gate (Covered by check_entry, but explicit check requested)
-        // check_entry returns Blocklist or CorporateActionBlock. We already called it.
-        // We can double check if we need specific error.
-
-        // 3. Price Range & 4. Liquidity (RiskState)
-        // We need Bid/Ask/Vol for this.
-        // Use ADV from DailyContext if available, else 0 (which fails Liquidity check).
-        // This implicitly enforces that Context must be present.
         let (adv, addv_usd) = match &state.daily_context {
             Some(ctx) => {
                 let adv = ctx.volume_profile.avg_20d_volume;
@@ -226,7 +288,6 @@ impl TapeEngine {
                 }
             },
             None => return Err(RejectReason::DailyContext),
-            None => return Err(RejectReason::DailyContext), // No context = unsafe
         }
 
         // 7. MTF Confirmation Gate
@@ -240,8 +301,6 @@ impl TapeEngine {
         }
 
         // 8. Anti-Chase Filter
-        // Passing &state.tape directly to avoid borrowing self while borrowing state
-        if Self::check_anti_chase(&state.tape) {
         if self.check_anti_chase(state) {
             return Err(RejectReason::AntiChase);
         }
@@ -250,13 +309,7 @@ impl TapeEngine {
         self.guard_evaluator.check_execution(
             symbol,
             ts_src,
-            ts_src,
-        // check_execution checks blocklist and microstructure guards (Spread, Imbalance, etc)
-        // but does NOT update flicker buffer (track_event does that).
-        self.guard_evaluator.check_execution(
-            symbol,
             ts_src, // System time assumed to be ts_src for simulation
-            ts_src, // Data time
             state.tape.bid,
             state.tape.ask,
             state.tape.bid_size,
@@ -268,21 +321,17 @@ impl TapeEngine {
         if state.tape.is_reversal {
             return Err(RejectReason::TapeReversal);
         }
-        // Use static method to avoid borrow issues
-        let scores = Self::calculate_scores(&state.tape);
         let scores = self.calculate_scores(&state.tape);
         if scores.total_score < TAPESCORE_THRESHOLD {
             return Err(RejectReason::TapeScoreLow);
         }
 
         // 11. ExpectedNet Validation
-        if Self::expected_net(&state.tape) <= 0.0 {
         if self.expected_net(&state.tape) <= 0.0 {
             return Err(RejectReason::NetNegative);
         }
 
         // 12. Exposure / Correlation Check
-        if !Self::check_exposure(&self.risk_state, symbol) {
         if !self.check_exposure(symbol) {
             return Err(RejectReason::Exposure);
         }
@@ -294,7 +343,6 @@ impl TapeEngine {
         self.symbol_states.entry(symbol).or_insert_with(SymbolState::new)
     }
 
-    pub fn calculate_scores(tape: &TapeMetrics) -> TapeComponentScores {
     pub fn calculate_scores(&self, tape: &TapeMetrics) -> TapeComponentScores {
         let r_score = tape.rate_ticks_per_sec.min(100.0).max(0.0);
         let a_score = (tape.aggressive_buy_ratio * 100.0).min(100.0).max(0.0);
@@ -327,9 +375,6 @@ impl TapeEngine {
         }
     }
 
-    fn check_anti_chase(tape: &TapeMetrics) -> bool {
-        if tape.vwap > 0.0 && tape.atr > 0.0 {
-            if tape.price > tape.vwap + (2.0 * tape.atr) {
     fn check_anti_chase(&self, state: &SymbolState) -> bool {
         // Simple logic: If price is > VWAP + 2 * ATR, consider it extended/chasing.
         // Assuming ATR and VWAP are populated.
@@ -341,19 +386,7 @@ impl TapeEngine {
         false
     }
 
-    fn expected_net(tape: &TapeMetrics) -> f64 {
-        let scores = Self::calculate_scores(tape);
-        if scores.total_score > 72.0 { 0.10 } else { -0.10 }
-    }
-
-    fn check_exposure(risk_state: &RiskState, _symbol: SymbolId) -> bool {
-        if risk_state.open_positions >= 3 {
     fn expected_net(&self, tape: &TapeMetrics) -> f64 {
-        // Placeholder: Expectancy = (WinProb * Reward) - (LossProb * Risk)
-        // We can proxy WinProb with TapeScore.
-        // Let's say Score 80 = 60% win rate.
-        // Let's return 1.0 (Positive) if Score > 72, else -1.0.
-        // Or strictly use calculated score.
         let scores = self.calculate_scores(tape);
         if scores.total_score > 72.0 { 0.10 } else { -0.10 }
     }

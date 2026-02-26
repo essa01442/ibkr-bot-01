@@ -22,6 +22,9 @@ use tokio::sync::mpsc;
 use std::sync::Arc;
 use arc_swap::ArcSwap;
 use watchlist_engine::WatchlistSnapshot;
+use std::path::Path;
+
+const RISK_STATE_PATH: &str = "risk_state.json";
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = ChannelConfig::default();
@@ -78,11 +81,36 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // For now, let's just log.
     task::spawn(async move {
         log::info!("FastLoop Task started");
-        let mut tape_engine = tape_engine::TapeEngine::new();
+
+        // Load Risk State from file or create new
+        let risk_state = if Path::new(RISK_STATE_PATH).exists() {
+            log::info!("Loading persistent risk state from {}", RISK_STATE_PATH);
+            match risk_engine::RiskState::load_from_file(Path::new(RISK_STATE_PATH)) {
+                Ok(state) => state,
+                Err(e) => {
+                    log::error!("Failed to load risk state: {}. Starting fresh.", e);
+                    risk_engine::RiskState::new(100.0, core_types::LiquidityConfig::default())
+                }
+            }
+        } else {
+            risk_engine::RiskState::new(100.0, core_types::LiquidityConfig::default())
+        };
+
+        let guard_config = risk_engine::guards::GuardConfig::default();
+        let mut tape_engine = tape_engine::TapeEngine::new(risk_state, guard_config);
+
         while let Some(event) = fast_loop_rx.recv().await {
             // Zero-allocation path
             // Read snapshot without locking
             let _snapshot = fast_snapshot_reader.load();
+
+            // Check if we should terminate immediately (Risk-Off)
+            if tape_engine.should_terminate() {
+                log::error!("RISK LIMIT BREACHED! HALTING TRADING IMMEDIATELY.");
+                // Break the loop to stop processing new events.
+                // In a real system, we would also trigger a "Close All" command to OMS.
+                break;
+            }
 
             if let Err(reason) = tape_engine.on_event(&event) {
                 // Reject logic
@@ -90,6 +118,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 // Signal entry
                 // send_order(...)
+            }
+
+            // Persist RiskState on Fills (critical updates)
+            // Ideally this is async or offloaded, but for now we do it inline or check event type
+            if let core_types::EventKind::Fill(_) = event.kind {
+                if let Err(e) = tape_engine.risk_state.save_to_file(Path::new(RISK_STATE_PATH)) {
+                    log::error!("Failed to persist risk state: {}", e);
+                }
             }
         }
     });
@@ -120,6 +156,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::Reject(_) => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
+                    // Send fills to FastLoop for PnL tracking and Risk updates
+                    if let EventKind::Fill(_) = event.kind {
+                        let _ = fast_tx.try_send(event.clone());
+                    }
                 }
                 EventKind::Heartbeat => {
                      let _ = risk_tx.try_send(event.clone());

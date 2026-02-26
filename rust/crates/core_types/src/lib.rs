@@ -166,6 +166,14 @@ pub enum SubscriptionStatus {
     Error = 3,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ColdStartState {
+    ColdStart = 0,
+    WarmActive = 1,
+    FullActive = 2,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Event {

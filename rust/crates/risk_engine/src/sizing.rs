@@ -51,7 +51,7 @@ impl PositionSizer {
     /// Number of shares to trade (u32).
     pub fn calculate_size(
         &self,
-        account_balance: f64,
+        available_cash: f64,
         entry_price: f64,
         stop_price: f64,
         daily_volume: u64,
@@ -73,8 +73,8 @@ impl PositionSizer {
         // Cap 1: Hard budget cap
         let budget_cap_shares = self.config.budget_cap_usd / entry_price;
 
-        // Cap 2: % of NAV
-        let nav_cap_usd = account_balance * self.config.max_position_pct_nav;
+        // Cap 2: % of NAV (Available Cash is proxy for NAV/Buying Power here)
+        let nav_cap_usd = available_cash * self.config.max_position_pct_nav;
         let nav_cap_shares = nav_cap_usd / entry_price;
 
         let budget_shares = budget_cap_shares.min(nav_cap_shares);

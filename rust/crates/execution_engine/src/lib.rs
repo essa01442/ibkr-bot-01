@@ -3,10 +3,8 @@
 //! Manages Order State, Fills, Timeouts, and Idempotency.
 //! Handles Bracket Orders and Trailing Stops.
 
-use core_types::{Order, OrderRequest, OrderStatus, SymbolId, FillData, Side, OrderType, StateSyncData, PositionData};
+use core_types::{Order, OrderRequest, OrderStatus, FillData, StateSyncData, OrderStatusData};
 use std::collections::{HashMap, HashSet};
-use core_types::{Order, OrderRequest, OrderStatus, SymbolId, FillData, Side, OrderType};
-use std::collections::HashMap;
 
 pub struct OrderManagementSystem {
     // Maps internal order_id to Order
@@ -17,6 +15,12 @@ pub struct OrderManagementSystem {
     pub broker_map: HashMap<String, u64>,
 
     next_order_id: u64,
+}
+
+impl Default for OrderManagementSystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OrderManagementSystem {
@@ -97,186 +101,13 @@ impl OrderManagementSystem {
         }
     }
 
-    pub fn cancel_order(&mut self, order_id: u64, timestamp_us: u64) {
-         if let Some(order) = self.orders.get_mut(&order_id) {
-             order.status = OrderStatus::Cancelled;
-             order.updated_at = timestamp_us;
-         }
-    }
-
-    pub fn check_timeouts(&mut self, now_us: u64, timeout_us: u64) -> Vec<u64> {
-        let mut timed_out = Vec::new();
-        for (id, order) in &self.orders {
-            if order.status == OrderStatus::Pending || order.status == OrderStatus::Live {
-                if now_us > order.created_at && (now_us - order.created_at) > timeout_us {
-                    timed_out.push(*id);
-                }
-            }
-        }
-        timed_out
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core_types::{TimeInForce, OrderType, Side};
-
-    #[test]
-    fn test_place_order_idempotency() {
-        let mut oms = OrderManagementSystem::new();
-        let request = OrderRequest {
-            symbol_id: SymbolId(1),
-            side: Side::Bid,
-            qty: 100,
-            order_type: OrderType::Limit,
-            limit_price: Some(10.0),
-            stop_price: None,
-            tif: TimeInForce::GTC,
-            idempotency_key: "key1".to_string(),
-            take_profit_price: None,
-            stop_loss_price: None,
-        };
-
-        let id1 = oms.place_order(request.clone(), 1000).unwrap();
-        let id2 = oms.place_order(request, 2000).unwrap();
-
-        assert_eq!(id1, id2);
-        assert_eq!(oms.orders.len(), 1);
-        assert_eq!(oms.orders[&id1].created_at, 1000);
-    }
-
-    #[test]
-    fn test_handle_fill() {
-        let mut oms = OrderManagementSystem::new();
-        let request = OrderRequest {
-            symbol_id: SymbolId(1),
-            side: Side::Bid,
-            qty: 100,
-            order_type: OrderType::Limit,
-            limit_price: Some(10.0),
-            stop_price: None,
-            tif: TimeInForce::GTC,
-            idempotency_key: "key1".to_string(),
-            take_profit_price: None,
-            stop_loss_price: None,
-        };
-
-        let id = oms.place_order(request, 1000).unwrap();
-
-        let fill = FillData {
-            order_id: id,
-            price: 10.0,
-            size: 50,
-            side: Side::Bid,
-            liquidity: 0,
-        };
-        oms.handle_fill(fill, 1100);
-
-        let order = &oms.orders[&id];
-        assert_eq!(order.filled_qty, 50);
-        assert_eq!(order.status, OrderStatus::Live);
-
-        let fill2 = FillData {
-            order_id: id,
-            price: 10.0,
-            size: 50,
-            side: Side::Bid,
-            liquidity: 0,
-        };
-        oms.handle_fill(fill2, 1200);
-
-        let order = &oms.orders[&id];
-        assert_eq!(order.filled_qty, 100);
-        assert_eq!(order.status, OrderStatus::Filled);
-    }
-
-    #[test]
-    fn test_timeouts() {
-        let mut oms = OrderManagementSystem::new();
-        let request = OrderRequest {
-            symbol_id: SymbolId(1),
-            side: Side::Bid,
-            qty: 100,
-            order_type: OrderType::Limit,
-            limit_price: Some(10.0),
-            stop_price: None,
-            tif: TimeInForce::GTC,
-            idempotency_key: "key1".to_string(),
-            take_profit_price: None,
-            stop_loss_price: None,
-        };
-
-        let id = oms.place_order(request, 1000).unwrap();
-
-        // Timeout 500us
-        // Check at 1200 (200 elapsed) -> Not timeout
-        assert!(oms.check_timeouts(1200, 500).is_empty());
-
-    /// Handles a new order request.
-    /// Returns (Internal Order ID, Optional Bracket Orders to send)
-    /// If idempotency key exists, returns existing Order ID.
-    pub fn place_order(&mut self, request: OrderRequest, timestamp_us: u64) -> Result<u64, &'static str> {
-        if let Some(&existing_id) = self.idempotency_cache.get(&request.idempotency_key) {
-            return Ok(existing_id);
-        }
-
-        let order_id = self.next_order_id;
-        self.next_order_id += 1;
-
-        let order = Order {
-            order_id,
-            client_order_id: request.idempotency_key.clone(),
-            broker_order_id: None,
-            symbol_id: request.symbol_id,
-            side: request.side,
-            qty: request.qty,
-            filled_qty: 0,
-            avg_fill_price: 0.0,
-            order_type: request.order_type,
-            limit_price: request.limit_price,
-            stop_price: request.stop_price,
-            status: OrderStatus::Pending,
-            created_at: timestamp_us,
-            updated_at: timestamp_us,
-        };
-
-        self.orders.insert(order_id, order);
-        self.idempotency_cache.insert(request.idempotency_key, order_id);
-
-        Ok(order_id)
-    }
-
-    pub fn handle_ack(&mut self, internal_id: u64, broker_id: String) {
-        if let Some(order) = self.orders.get_mut(&internal_id) {
-            order.broker_order_id = Some(broker_id.clone());
-            // If it was Pending, move to Live
-            if order.status == OrderStatus::Pending {
-                order.status = OrderStatus::Live;
-            }
-            self.broker_map.insert(broker_id, internal_id);
-        }
-    }
-
-    pub fn handle_fill(&mut self, fill: FillData, timestamp_us: u64) {
-        // Assuming fill.order_id corresponds to internal order_id
-        if let Some(order) = self.orders.get_mut(&fill.order_id) {
+    pub fn handle_status(&mut self, status: OrderStatusData, timestamp_us: u64) {
+        if let Some(order) = self.orders.get_mut(&status.order_id) {
             order.updated_at = timestamp_us;
-
-            // Update average price
-            let total_cost = (order.filled_qty as f64 * order.avg_fill_price) + (fill.size as f64 * fill.price);
-            order.filled_qty += fill.size;
-            if order.filled_qty > 0 {
-                order.avg_fill_price = total_cost / order.filled_qty as f64;
-            }
-
-            if order.filled_qty >= order.qty {
-                order.status = OrderStatus::Filled;
-            } else {
-                 // Partial fill, ensure status implies Open/Live
-                 if order.status != OrderStatus::Live {
-                     order.status = OrderStatus::Live;
-                 }
+            order.status = status.status;
+            order.filled_qty = status.filled_qty;
+            if status.avg_fill_price > 0.0 {
+                order.avg_fill_price = status.avg_fill_price;
             }
         }
     }
@@ -291,10 +122,11 @@ mod tests {
     pub fn check_timeouts(&mut self, now_us: u64, timeout_us: u64) -> Vec<u64> {
         let mut timed_out = Vec::new();
         for (id, order) in &self.orders {
-            if order.status == OrderStatus::Pending || order.status == OrderStatus::Live {
-                if now_us > order.created_at && (now_us - order.created_at) > timeout_us {
-                    timed_out.push(*id);
-                }
+            if (order.status == OrderStatus::Pending || order.status == OrderStatus::Live)
+                && now_us > order.created_at
+                && (now_us - order.created_at) > timeout_us
+            {
+                timed_out.push(*id);
             }
         }
         timed_out
@@ -352,7 +184,7 @@ mod tests {
         // 2. Identify Stale Local Orders
         // Any local order that is Live/Pending but NOT in broker_order_ids is stale/lost
         for (id, order) in &mut self.orders {
-            if (order.status == OrderStatus::Live || order.status == OrderStatus::Pending) {
+            if order.status == OrderStatus::Live || order.status == OrderStatus::Pending {
                 // If it has a broker ID, it should have been in the sync list
                 if let Some(bid) = &order.broker_order_id {
                     if !broker_order_ids.contains(bid) {
@@ -379,7 +211,7 @@ mod tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_types::{TimeInForce, OrderType, Side};
+    use core_types::{TimeInForce, OrderType, Side, SymbolId};
 
     #[test]
     fn test_place_order_idempotency() {

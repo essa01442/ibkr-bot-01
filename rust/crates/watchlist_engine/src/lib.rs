@@ -85,6 +85,12 @@ pub struct Watchlist {
     pub tier_c: HashMap<SymbolId, TierData>,
 }
 
+impl Default for Watchlist {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Watchlist {
     pub fn new() -> Self {
         Self {
@@ -212,6 +218,12 @@ impl Watchlist {
         if let Some(data) = self.get_data_mut(symbol_id) {
             data.tick_count += 1;
         }
+    }
+
+    pub fn touch(&mut self, symbol_id: SymbolId, ts: u64) {
+        if let Some(d) = self.tier_a.get_mut(&symbol_id) { d.last_activity = ts; return; }
+        if let Some(d) = self.tier_b.get_mut(&symbol_id) { d.last_activity = ts; return; }
+        if let Some(d) = self.tier_c.get_mut(&symbol_id) { d.last_activity = ts; }
     }
 
     pub fn total_subscriptions(&self) -> usize {

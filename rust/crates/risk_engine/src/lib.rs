@@ -142,6 +142,7 @@ impl RiskState {
              // Given instructions: "RejectReason::Blocklist" is closest existing, but let's see.
              // Spec doesn't strictly define new Enum variant.
              return Err(RejectReason::PdtViolation);
+             return Err(RejectReason::Blocklist);
         }
 
         // Check Exposure

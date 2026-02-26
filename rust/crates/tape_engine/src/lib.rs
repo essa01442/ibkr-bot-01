@@ -323,6 +323,14 @@ impl TapeEngine {
                 }
                 open_count += 1;
             }
+        let open_symbols: Vec<SymbolId> = self.symbol_states
+            .iter()
+            .filter(|(_, state)| state.position != 0)
+            .map(|(id, _)| *id)
+            .collect();
+
+        if self.risk_state.lock().unwrap().check_entry(symbol, &open_symbols, day_ordinal).is_err() {
+            return Err(RejectReason::Blocklist);
         }
         let open_symbols = &open_symbols_buf[..open_count.min(2)];
 
@@ -417,6 +425,7 @@ impl TapeEngine {
 
         // 12. Exposure / Correlation Check
         if !self.check_exposure(symbol, open_symbols) {
+        if !self.check_exposure(symbol, &open_symbols) {
             return Err(RejectReason::Exposure);
         }
 

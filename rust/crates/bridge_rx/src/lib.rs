@@ -165,6 +165,17 @@ impl BridgeRxTask {
             let mut cur = std::io::Cursor::new(&self.read_buf[cursor..]);
             let mut de = rmp_serde::decode::Deserializer::new(&mut cur);
 
+
+        let mut cursor = 0;
+        loop {
+            if cursor >= self.read_buf.len() {
+                break;
+            }
+
+            // We use a cursor over the slice
+            let mut cur = std::io::Cursor::new(&self.read_buf[cursor..]);
+            let mut de = rmp_serde::decode::Deserializer::new(&mut cur);
+
             match Event::deserialize(&mut de) {
                 Ok(event) => {
                      cursor += cur.position() as usize;
@@ -209,6 +220,14 @@ impl BridgeRxTask {
 
         Ok(())
     }
+
+    fn validate_event(&self, event: &Event) -> bool {
+        let now_us = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;
+
+        if event.ts_src == 0 || event.ts_src > now_us + 5_000_000 {
+            return false;
+        }
+
 
     fn validate_event(&self, event: &Event) -> bool {
         let now_us = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_micros() as u64;

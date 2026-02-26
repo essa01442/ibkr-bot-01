@@ -12,6 +12,7 @@ use arc_swap::ArcSwap;
 use watchlist_engine::WatchlistSnapshot;
 use std::path::Path;
 use metrics_observability::{DecisionLog, DecisionAction, LatencyTracker, log_decision, SLA_LIMIT_MICROS};
+use metrics_observability::{DecisionLog, LatencyTracker, log_decision, SLA_LIMIT_MICROS};
 use tokio_util::sync::CancellationToken;
 use std::collections::HashMap;
 use risk_engine::sizing::{PositionSizer, SizingConfig};
@@ -128,6 +129,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         // 1. A new UDS message type: { "type": "cancel", "broker_order_id": "..." }
                         // 2. A Sender<CancelCommand> passed into OmsTask
                         // 3. Python UDS receiver loop that handles cancel commands alongside market data
+                    if !timeouts.is_empty() {
+                        log::warn!("Timed out orders: {:?}", timeouts);
                     }
                 }
                 Some(event) = oms_rx.recv() => {
@@ -224,6 +227,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                          // T+1 Settlement
                          let proceeds = (fill.size as f64) * fill.price;
                          let settle_date = today_ordinal + 1;
+                     // Handle T+1 Settlement Tracking
+                     if fill.side == core_types::Side::Ask {
+                         // Sell side fill
+                         // Calculate proceeds: size * price
+                         let proceeds = (fill.size as f64) * fill.price;
+                         let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
+                         let settle_date = today_ordinal + 1; // T+1
 
                          let mut guard = risk_state_clone.lock().unwrap();
                          let current = guard.unsettled_proceeds.get(&settle_date).copied().unwrap_or(0.0);
@@ -382,11 +392,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                      } else { 0 };
 
                      let stop_dist = position_sizer.config.min_stop_distance_cents;
+                     let stop_dist = SizingConfig::default().min_stop_distance_cents;
                      let stop_price = tick.price - stop_dist;
 
                      let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
                      let available_cash = if let Ok(guard) = tape_engine.risk_state.lock() {
                          guard.available_cash(today_ordinal, account_capital)
+                         guard.available_cash(today_ordinal, 25_000.0) // Assume 25k base equity for now
                      } else {
                          0.0
                      };
@@ -397,6 +409,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                          stop_price,
                          daily_volume,
                          available_cash
+                         available_cash,
+                         tick.price,
+                         stop_price,
+                         daily_volume
                      );
 
                      if qty > 0 {

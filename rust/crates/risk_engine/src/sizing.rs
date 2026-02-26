@@ -52,6 +52,7 @@ impl PositionSizer {
     pub fn calculate_size(
         &self,
         _account_balance: f64,
+        available_cash: f64,
         entry_price: f64,
         stop_price: f64,
         daily_volume: u64,

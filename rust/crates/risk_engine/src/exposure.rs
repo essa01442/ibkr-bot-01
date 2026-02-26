@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn test_max_2_strict() {
-        let mut validator = ExposureValidator::new();
+        let validator = ExposureValidator::new();
         let sym1 = SymbolId(1);
         let sym2 = SymbolId(2);
         let sym3 = SymbolId(3); // Candidate
@@ -157,17 +157,8 @@ mod tests {
 
     #[test]
     fn test_sector_restriction() {
-        let validator = ExposureValidator::new();
-        let mut validator = validator; // re-bind to mut to silence unused_mut if needed, but actually new() returns non-mut.
-        // The warning was: "variable does not need to be mutable" on `let mut validator = ExposureValidator::new();`
-        // Wait, below we call `validator.set_sector(...)` which takes `&mut self`.
-        // So it DOES need to be mutable.
-        // Ah, in `test_sector_restriction` it is mutable.
-        // The warning was likely in `test_max_2_strict` or `test_correlation_restriction`?
-        // Let's check line 146 in previous output.
-        // crates/risk_engine/src/exposure.rs:146:13
-        // That corresponds to `test_max_2_strict`.
-        // Let's look at `test_max_2_strict`.
+        let mut validator = ExposureValidator::new();
+        let sym1 = SymbolId(1);
         let sym2 = SymbolId(2); // Tech
         let sym3 = SymbolId(3); // Energy
 

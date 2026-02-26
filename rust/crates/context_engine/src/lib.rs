@@ -85,10 +85,11 @@ impl ContextEngine {
 
         // 2. Volume Rule: Today >= 2x Avg20D OR Volume Surge
         let vol_ratio = self.current_volume as f64 / self.avg_20d_volume as f64;
-        let volume_condition = vol_ratio >= self.params.volume_multiplier_threshold || self.is_volume_surge;
+        let volume_condition =
+            vol_ratio >= self.params.volume_multiplier_threshold || self.is_volume_surge;
 
         if !volume_condition {
-             return ContextState::NoPlay;
+            return ContextState::NoPlay;
         }
 
         // 3. News Event Trigger
@@ -106,7 +107,7 @@ impl ContextEngine {
             // Or maybe we just need significant momentum (up or down).
             // Let's assume we want supportive momentum (is_favorable flag handles direction).
             if !sector.is_favorable {
-                 return ContextState::NoPlay;
+                return ContextState::NoPlay;
             }
         } else {
             // Missing sector data

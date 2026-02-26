@@ -3,8 +3,8 @@
 //! Handles Decision Logging, Trade Journaling, and Latency Monitoring.
 //! Must not block the hot path (should run in its own task).
 
-use serde::{Serialize, Deserialize};
 use core_types::{RejectReason, SymbolId};
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 pub const SLA_LIMIT_MICROS: u64 = 10_000; // 10ms per spec §22
@@ -84,8 +84,8 @@ impl LatencyTracker {
         self.sorted_cache.extend(self.window.iter());
         self.sorted_cache.sort_unstable();
 
-        let idx = (self.sorted_cache.len() as f64 * 0.95) as usize;
-        let idx = idx.min(self.sorted_cache.len() - 1);
+        let idx =
+            ((self.sorted_cache.len() as f64 * 0.95) as usize).min(self.sorted_cache.len() - 1);
         self.p95_cache = self.sorted_cache[idx];
         self.p95_cache
     }

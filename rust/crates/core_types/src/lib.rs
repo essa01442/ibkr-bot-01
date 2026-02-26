@@ -43,6 +43,8 @@ pub enum RejectReason {
     NetNegative = 15,
     Exposure = 16,
     TapeReversal = 17,
+    MonitorOnly = 18,
+    MaxDailyLoss = 19,
     Unknown = 255,
 }
 

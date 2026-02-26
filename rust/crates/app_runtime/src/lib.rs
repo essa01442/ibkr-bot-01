@@ -78,11 +78,26 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // For now, let's just log.
     task::spawn(async move {
         log::info!("FastLoop Task started");
-        let mut tape_engine = tape_engine::TapeEngine::new();
+        // Initialize Risk and Tape Engine with MaxDailyLoss = 100.0
+        let risk_state = risk_engine::RiskState::new(
+            100.0,
+            core_types::LiquidityConfig::default()
+        );
+        let guard_config = risk_engine::guards::GuardConfig::default();
+        let mut tape_engine = tape_engine::TapeEngine::new(risk_state, guard_config);
+
         while let Some(event) = fast_loop_rx.recv().await {
             // Zero-allocation path
             // Read snapshot without locking
             let _snapshot = fast_snapshot_reader.load();
+
+            // Check if we should terminate immediately (Risk-Off)
+            if tape_engine.should_terminate() {
+                log::error!("RISK LIMIT BREACHED! HALTING TRADING IMMEDIATELY.");
+                // Break the loop to stop processing new events.
+                // In a real system, we would also trigger a "Close All" command to OMS.
+                break;
+            }
 
             if let Err(reason) = tape_engine.on_event(&event) {
                 // Reject logic
@@ -120,6 +135,10 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::Reject(_) => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
+                    // Send fills to FastLoop for PnL tracking and Risk updates
+                    if let EventKind::Fill(_) = event.kind {
+                        let _ = fast_tx.try_send(event.clone());
+                    }
                 }
                 EventKind::Heartbeat => {
                      let _ = risk_tx.try_send(event.clone());

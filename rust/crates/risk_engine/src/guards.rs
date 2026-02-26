@@ -82,6 +82,44 @@ impl GuardEvaluator {
         }
     }
 
+    /// Tracks a market data event to update flicker detection and activity monitoring.
+    ///
+    /// This should be called for every relevant market data update (tick, L2 delta, snapshot).
+    /// If the update rate exceeds `max_flicker_count` within `flicker_window_ms`,
+    /// the symbol is blocked with `GuardFlicker`.
+    pub fn track_event(&mut self, symbol: SymbolId, timestamp_ms: u64) -> Result<(), RejectReason> {
+        let config = &self.config;
+        let state = self.states.entry(symbol).or_insert_with(|| {
+            GuardState::new(config.max_flicker_count * 2, config.flicker_window_ms)
+        });
+
+        // Update last update timestamp
+        state.last_update_ts = timestamp_ms;
+
+        // 0. TTL Hysteresis Check (Short-circuit if already blocked)
+        if timestamp_ms < state.blocked_until {
+            if let Some(reason) = state.block_reason {
+                return Err(reason);
+            }
+        }
+
+        // 1. Update Flicker Buffer
+        state.flicker_buffer.push(timestamp_ms, ());
+        state.flicker_buffer.prune_expired(timestamp_ms);
+
+        if state.flicker_buffer.len() > config.max_flicker_count {
+            state.blocked_until = timestamp_ms + config.ttl_ms;
+            state.block_reason = Some(RejectReason::GuardFlicker);
+            return Err(RejectReason::GuardFlicker);
+        }
+
+        Ok(())
+    }
+
+    /// Evaluates all microstructure guards for a given symbol and market state.
+    ///
+    /// This method does NOT update the flicker buffer (call `track_event` for that).
+    /// It checks if the symbol is blocked (TTL) or violates any guard (Spread, Liquidity, etc.).
     /// Evaluates all guards for a given symbol and market state.
     ///
     /// **Note:** This method updates the internal state (flicker buffer, last update time).
@@ -96,6 +134,7 @@ impl GuardEvaluator {
     /// * `bid_size` - Size at Best Bid.
     /// * `ask_size` - Size at Best Ask.
     /// * `last_trade_price` - Price of the last trade (for slippage check).
+    pub fn check_execution(
     pub fn check(
         &mut self,
         symbol: SymbolId,
@@ -109,6 +148,7 @@ impl GuardEvaluator {
     ) -> Result<(), RejectReason> {
         let config = &self.config;
 
+        // Ensure state exists (if check called before track)
         // Ensure state exists
         let state = self.states.entry(symbol).or_insert_with(|| {
             GuardState::new(config.max_flicker_count * 2, config.flicker_window_ms)
@@ -121,6 +161,7 @@ impl GuardEvaluator {
             }
         }
 
+        // 1. Stale Data Check
         // 1. Update Flicker Buffer & Check Flicker
         // Add current timestamp to buffer.
         // We use prune_expired to remove events outside the window.
@@ -138,12 +179,14 @@ impl GuardEvaluator {
             return self.reject(symbol, timestamp_ms, RejectReason::GuardStale);
         }
 
+        // 2. Spread Check
         // 3. Spread Check
         let spread = ask - bid;
         if spread > config.max_spread_cents || spread <= 0.0 {
             return self.reject(symbol, timestamp_ms, RejectReason::GuardSpread);
         }
 
+        // 3. L2 Vacuum (Liquidity) Check
         // 4. L2 Vacuum (Liquidity) Check
         // "Vacuum" if total liquidity at BBO is too low.
         let total_liquidity = bid_size + ask_size;
@@ -151,6 +194,7 @@ impl GuardEvaluator {
             return self.reject(symbol, timestamp_ms, RejectReason::GuardL2Vacuum);
         }
 
+        // 4. Imbalance Check
         // 5. Imbalance Check
         // Avoid division by zero
         if total_liquidity > 0 {
@@ -160,6 +204,7 @@ impl GuardEvaluator {
              }
         }
 
+        // 5. Slippage Check (Price Deviation)
         // 6. Slippage Check (Price Deviation)
         // Check if Mid Price is far from Last Trade Price
         let mid = (bid + ask) / 2.0;
@@ -168,6 +213,9 @@ impl GuardEvaluator {
             return self.reject(symbol, timestamp_ms, RejectReason::GuardSlippage);
         }
 
+        // Note: We do NOT clear block_reason automatically here,
+        // relying on TTL expiration in Step 0.
+        // If we passed all checks, we are good.
         // Update state on success
         state.last_update_ts = timestamp_ms;
         state.block_reason = None; // Clear block if we passed (and TTL expired)
@@ -212,6 +260,10 @@ mod tests {
         let data_ts = now;
 
         // Spread 0.04 (OK)
+        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02).is_ok());
+
+        // Spread 0.06 (Fail)
+        match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.06, 500, 500, 10.03) {
         assert!(evaluator.check(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02).is_ok());
 
         // Spread 0.06 (Fail)
@@ -229,11 +281,13 @@ mod tests {
         let mut data_ts = now;
 
         // Trigger failure (Spread)
+        let _ = evaluator.check_execution(symbol, now, data_ts, 10.00, 10.06, 500, 500, 10.03);
         let _ = evaluator.check(symbol, now, data_ts, 10.00, 10.06, 500, 500, 10.03);
 
         // Fix spread, but TTL should still block
         now += 100; // +100ms
         data_ts = now;
+        match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02) {
         match evaluator.check(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02) {
             Err(RejectReason::GuardSpread) => (), // Still Spread error due to latch
             _ => panic!("Expected GuardSpread persistence"),
@@ -242,6 +296,7 @@ mod tests {
         // Wait for TTL (2000ms default)
         now += 2000;
         data_ts = now;
+        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02).is_ok());
         assert!(evaluator.check(symbol, now, data_ts, 10.00, 10.04, 500, 500, 10.02).is_ok());
     }
 
@@ -253,6 +308,10 @@ mod tests {
         let data_ts = now;
 
         // Balanced (500/500 = 0.0) -> OK
+        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005).is_ok());
+
+        // Imbalanced (900/100 = 800/1000 = 0.8) -> Fail (Limit 0.7)
+        match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 900, 100, 10.005) {
         assert!(evaluator.check(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005).is_ok());
 
         // Imbalanced (900/100 = 800/1000 = 0.8) -> Fail (Limit 0.7)
@@ -272,6 +331,10 @@ mod tests {
         // Liquidity 100+100 = 200 (OK, limit 200 inclusive?)
         // Limit is min_liquidity_shares: 200. If < 200 reject.
         // 200 is OK.
+        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 100, 100, 10.005).is_ok());
+
+        // Liquidity 50+50 = 100 (Fail)
+        match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 50, 50, 10.005) {
         assert!(evaluator.check(symbol, now, data_ts, 10.00, 10.01, 100, 100, 10.005).is_ok());
 
         // Liquidity 50+50 = 100 (Fail)
@@ -289,6 +352,10 @@ mod tests {
         let data_ts = now;
 
         // Mid 10.005, Last 10.005 -> Diff 0.0 (OK)
+        assert!(evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005).is_ok());
+
+        // Mid 10.005, Last 10.10 -> Diff 0.095 > 0.03 (Fail)
+        match evaluator.check_execution(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.10) {
         assert!(evaluator.check(symbol, now, data_ts, 10.00, 10.01, 500, 500, 10.005).is_ok());
 
         // Mid 10.005, Last 10.10 -> Diff 0.095 > 0.03 (Fail)
@@ -306,6 +373,26 @@ mod tests {
         let mut evaluator = GuardEvaluator::new(config);
         let symbol = SymbolId(5);
         let mut now = 1000;
+
+        // 3 updates OK
+        assert!(evaluator.track_event(symbol, now).is_ok());
+        now += 10;
+        assert!(evaluator.track_event(symbol, now).is_ok());
+        now += 10;
+        assert!(evaluator.track_event(symbol, now).is_ok());
+
+        // 4th update in window -> Fail
+        now += 10;
+        match evaluator.track_event(symbol, now) {
+            Err(RejectReason::GuardFlicker) => (),
+            _ => panic!("Expected GuardFlicker"),
+        }
+
+        // Check that check_execution also reports block
+        match evaluator.check_execution(symbol, now, now, 10.0, 10.04, 100, 100, 10.02) {
+             Err(RejectReason::GuardFlicker) => (),
+             _ => panic!("Expected GuardFlicker persistence in check_execution"),
+        }
         let mut data_ts = now;
 
         // 3 updates OK
@@ -333,6 +420,11 @@ mod tests {
 
         // Data is recent (1500 vs 2000, 500ms diff) -> OK
         let data_ts = 1500;
+        assert!(evaluator.check_execution(symbol, now, data_ts, 10.0, 10.04, 100, 100, 10.02).is_ok());
+
+        // Data is old (500 vs 2000, 1500ms diff) -> Fail
+        let data_ts = 500;
+        match evaluator.check_execution(symbol, now, data_ts, 10.0, 10.04, 100, 100, 10.02) {
         assert!(evaluator.check(symbol, now, data_ts, 10.0, 10.04, 100, 100, 10.02).is_ok());
 
         // Data is old (500 vs 2000, 1500ms diff) -> Fail

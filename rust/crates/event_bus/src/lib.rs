@@ -88,12 +88,9 @@ impl SystemChannels {
 }
 
 // Temporary compatibility struct for BridgeRxTask until it's refactored to take just Sender
-//! Manages communication between different parts of the system using Tokio channels.
-//! This ensures decoupled components.
 
-use tokio::sync::mpsc;
-use core_types::Event;
-
+/// Manages communication between different parts of the system using Tokio channels.
+/// This ensures decoupled components.
 pub struct EventBus {
     pub tx: mpsc::Sender<Event>,
     pub rx: mpsc::Receiver<Event>,

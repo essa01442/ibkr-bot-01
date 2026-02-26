@@ -1,3 +1,12 @@
+//! Tape Engine Crate (Fast Loop Logic).
+//!
+//! Contains the core trading logic: Tape Reading, Microstructure Guards, and Entry Triggers.
+//!
+//! # Constraints
+//! - **NO Allocations** in the hot path. Use fixed-size ring buffers.
+//! - **O(1)** complexity for all event handlers.
+//! - **Deterministic** execution.
+
 use core_types::{Event, EventKind, RejectReason, SymbolId, TickData};
 
 // --- Mock Implementations for State ---
@@ -18,19 +27,6 @@ pub struct TapeEngine {
     // For now, we just pretend we have state for the current symbol being processed.
     tape: Tape,
     guards: Guards,
-//! Tape Engine Crate (Fast Loop Logic).
-//!
-//! Contains the core trading logic: Tape Reading, Microstructure Guards, and Entry Triggers.
-//!
-//! # Constraints
-//! - **NO Allocations** in the hot path. Use fixed-size ring buffers.
-//! - **O(1)** complexity for all event handlers.
-//! - **Deterministic** execution.
-
-use core_types::{Event, RejectReason};
-
-pub struct TapeEngine {
-    // Ring buffers and pre-allocated state
 }
 
 impl TapeEngine {
@@ -110,15 +106,4 @@ impl TapeEngine {
     fn calculate_tape_score(&self) -> f64 { 75.0 }
     fn expected_net(&self) -> f64 { 0.05 }
     fn check_exposure(&self) -> bool { false }
-        Self { }
-    }
-
-    /// Process a single event in O(1).
-    /// Returns an Option<Decision> (conceptually).
-    pub fn on_event(&mut self, _event: &Event) -> Result<(), RejectReason> {
-        // Update ring buffers
-        // Check guards
-        // Calculate TapeScore
-        Ok(())
-    }
 }

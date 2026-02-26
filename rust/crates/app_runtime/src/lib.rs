@@ -23,12 +23,16 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use watchlist_engine::WatchlistSnapshot;
 use std::path::Path;
+use metrics_observability::{DecisionLog, LatencyTracker, log_decision, SLA_LIMIT_MICROS};
 
 const RISK_STATE_PATH: &str = "risk_state.json";
 
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = ChannelConfig::default();
     let channels = SystemChannels::new(config);
+
+    // Dedicated channel for Decision Logs (FastLoop -> Metrics)
+    let (decision_tx, mut decision_rx) = mpsc::channel::<DecisionLog>(8192);
 
     // Shared State: Watchlist Snapshot
     let watchlist_snapshot = Arc::new(ArcSwap::new(Arc::new(WatchlistSnapshot::default())));
@@ -37,8 +41,29 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut metrics_rx = channels.metrics_rx;
     task::spawn(async move {
         log::info!("Metrics Task started");
-        while let Some(_event) = metrics_rx.recv().await {
-            // log_decision(&event);
+        let mut latency_tracker = LatencyTracker::new(1000);
+
+        loop {
+            tokio::select! {
+                Some(_event) = metrics_rx.recv() => {
+                    // Process raw events for data quality metrics
+                }
+                Some(log) = decision_rx.recv() => {
+                    // 1. Log Decision (Structured)
+                    log_decision(&log);
+
+                    // 2. Track Latency (P95)
+                    // We care about Source -> Decision latency
+                    let total_latency = log.latency_src_rx + log.latency_rx_proc + log.latency_proc_decision;
+                    latency_tracker.record(total_latency);
+
+                    // 3. SLA Breach Check
+                    let p95 = latency_tracker.p95();
+                    if p95 > SLA_LIMIT_MICROS {
+                        log::warn!("SLA BREACH! P95 Latency: {}us > Limit: {}us", p95, SLA_LIMIT_MICROS);
+                    }
+                }
+            }
         }
     });
 
@@ -96,15 +121,15 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
             risk_engine::RiskState::new(100.0, core_types::LiquidityConfig::default())
         };
 
-        // Initialize Risk and Tape Engine with MaxDailyLoss = 100.0
-        let risk_state = risk_engine::RiskState::new(
-            100.0,
-            core_types::LiquidityConfig::default()
-        );
         let guard_config = risk_engine::guards::GuardConfig::default();
         let mut tape_engine = tape_engine::TapeEngine::new(risk_state, guard_config);
 
         while let Some(event) = fast_loop_rx.recv().await {
+            let ts_proc_start = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64;
+
             // Zero-allocation path
             // Read snapshot without locking
             let _snapshot = fast_snapshot_reader.load();
@@ -117,9 +142,31 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
 
-            if let Err(reason) = tape_engine.on_event(&event) {
-                // Reject logic
-                 log::debug!("FastLoop reject: {:?}", reason);
+            let decision_result = tape_engine.on_event(&event);
+
+            let ts_decision_end = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as u64;
+
+            // Emit Decision Log
+            if let core_types::EventKind::Tick(tick) = event.kind {
+                 let log = DecisionLog {
+                    symbol_id: event.symbol_id,
+                    timestamp: ts_decision_end,
+                    action: if decision_result.is_ok() { "Enter".to_string() } else { "Reject".to_string() },
+                    reject_reason: decision_result.err(),
+                    latency_src_rx: event.ts_rx.saturating_sub(event.ts_src),
+                    latency_rx_proc: ts_proc_start.saturating_sub(event.ts_rx),
+                    latency_proc_decision: ts_decision_end.saturating_sub(ts_proc_start),
+                    price: tick.price,
+                    tape_score: 0.0, // TapeEngine needs to expose score if we want it here
+                };
+                let _ = decision_tx.try_send(log);
+            }
+
+            if let Err(_reason) = decision_result {
+                // Reject logic handled by DecisionLog
             } else {
                 // Signal entry
                 // send_order(...)

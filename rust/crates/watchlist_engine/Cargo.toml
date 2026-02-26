@@ -1,0 +1,9 @@
+[package]
+name = "watchlist_engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+core_types = { path = "../core_types" }
+arc-swap = "1.6"
+serde = { workspace = true }

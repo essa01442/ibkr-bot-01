@@ -149,6 +149,23 @@ pub struct MtfAnalysis {
     pub mtf_pass: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum Tier {
+    A = 0,
+    B = 1,
+    C = 2,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum SubscriptionStatus {
+    None = 0,
+    Pending = 1,
+    Active = 2,
+    Error = 3,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct Event {

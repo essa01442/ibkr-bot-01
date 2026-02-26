@@ -1,0 +1,14 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rps_bridge"
+version = "0.1.0"
+description = "IBKR Bridge for Robust Penny Scalper v7.0"
+requires-python = ">=3.10"
+dependencies = [
+    "ib_insync",
+    "msgpack",
+    "flatbuffers",
+]

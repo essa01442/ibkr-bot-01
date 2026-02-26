@@ -1,0 +1,28 @@
+namespace RPS.Events;
+
+enum EventType : byte {
+  Tick = 0,
+  L2Delta = 1,
+  Snapshot = 2,
+  Fill = 3,
+  OrderStatus = 4,
+  Reject = 5,
+  Heartbeat = 6
+}
+
+table Tick {
+  ts_src: ulong;
+  symbol_id: uint;
+  price: float;
+  size: uint;
+}
+
+table L2Delta {
+  ts_src: ulong;
+  symbol_id: uint;
+  side: byte; // 0=bid, 1=ask
+  price: float;
+  size: uint;
+}
+
+root_type Tick;

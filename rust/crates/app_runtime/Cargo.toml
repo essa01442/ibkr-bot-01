@@ -1,0 +1,17 @@
+[package]
+name = "app_runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+log = { workspace = true }
+core_types = { path = "../core_types" }
+event_bus = { path = "../event_bus" }
+bridge_rx = { path = "../bridge_rx" }
+watchlist_engine = { path = "../watchlist_engine" }
+tape_engine = { path = "../tape_engine" }
+risk_engine = { path = "../risk_engine" }
+execution_engine = { path = "../execution_engine" }
+metrics_observability = { path = "../metrics_observability" }
+arc-swap = "1.6"

@@ -140,9 +140,10 @@ impl Default for LiquidityConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum RegimeState {
+    #[default]
     Normal = 0,
     Caution = 1,
     RiskOff = 2,
@@ -290,7 +291,9 @@ pub struct SnapshotData {
     pub ask_price: f64,
     pub bid_size: u32,
     pub ask_size: u32,
-    // Add more levels if needed, or keep it minimal for Tier B
+    pub volume: u64,
+    pub avg_volume_20d: u64,
+    pub has_news_today: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

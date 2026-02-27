@@ -8,15 +8,21 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextParams {
-    pub volume_multiplier_threshold: f64, // e.g. 2.0 for 2x Avg20D
-    pub min_sector_momentum_pct: f64,     // e.g. 0.5%
+    pub volume_multiplier_2x: f64,   // 2.0
+    pub volume_multiplier_3x: f64,   // 3.0
+    pub sector_momentum_min_pct: f64,// 2.0 (percent)
+    pub churn_max_move_pct: f64,     // 0.01 (1%)
+    pub churn_window_minutes: u64,   // 10
 }
 
 impl Default for ContextParams {
     fn default() -> Self {
         Self {
-            volume_multiplier_threshold: 2.0,
-            min_sector_momentum_pct: 0.5,
+            volume_multiplier_2x: 2.0,
+            volume_multiplier_3x: 3.0,
+            sector_momentum_min_pct: 2.0,
+            churn_max_move_pct: 0.01,
+            churn_window_minutes: 10,
         }
     }
 }
@@ -31,6 +37,11 @@ pub struct ContextEngine {
     has_news: bool,
     sector_momentum: Option<SectorMomentum>,
     is_volume_surge: bool,
+
+    // Churning detection
+    pub price_high_window: f64,
+    pub price_low_window: f64,
+    pub is_churning: bool,
 }
 
 impl ContextEngine {
@@ -43,6 +54,9 @@ impl ContextEngine {
             has_news: false,
             sector_momentum: None,
             is_volume_surge: false,
+            price_high_window: 0.0,
+            price_low_window: 0.0,
+            is_churning: false,
         }
     }
 
@@ -58,6 +72,17 @@ impl ContextEngine {
 
     pub fn update_sector_momentum(&mut self, momentum: SectorMomentum) {
         self.sector_momentum = Some(momentum);
+    }
+
+    /// Called by SlowLoop every tick/minute with window high/low prices.
+    /// Sets is_churning=true if High–Low < churn_max_move_pct for churn_window_minutes.
+    pub fn update_price_window(&mut self, window_high: f64, window_low: f64) {
+        self.price_high_window = window_high;
+        self.price_low_window = window_low;
+        if window_high > 0.0 {
+            let range_pct = (window_high - window_low) / window_high;
+            self.is_churning = range_pct < self.params.churn_max_move_pct;
+        }
     }
 
     pub fn compute_context(&self) -> DailyContext {
@@ -77,44 +102,44 @@ impl ContextEngine {
     }
 
     fn evaluate_state(&self) -> ContextState {
-        // 1. Check Data Availability
+        // Churning → reject always (§9.1)
+        if self.is_churning {
+            return ContextState::NoPlay;
+        }
+
         if self.avg_20d_volume == 0 {
-            // Cannot determine context without baseline volume
             return ContextState::Undetermined;
         }
 
-        // 2. Volume Rule: Today >= 2x Avg20D OR Volume Surge
         let vol_ratio = self.current_volume as f64 / self.avg_20d_volume as f64;
-        let volume_condition =
-            vol_ratio >= self.params.volume_multiplier_threshold || self.is_volume_surge;
 
-        if !volume_condition {
+        // §9.2: Volume ≥ 3× in first 2 hours = strong trigger alone
+        // Note: 'in first 2 hours' condition is likely implicitly handled by the timing of this check
+        // or is_volume_surge flag if that flag captures the time window.
+        // The prompt says: "§9.2: Volume ≥ 3× in first 2 hours = strong trigger alone"
+        // But the implementation requested in the prompt is:
+        // if self.is_volume_surge && vol_ratio >= self.params.volume_multiplier_3x
+        // Let's stick to the prompt's explicit code for this check.
+        if self.is_volume_surge && vol_ratio >= self.params.volume_multiplier_3x {
+            return ContextState::Play;
+        }
+
+        // §9.2: Volume < 2× = no play
+        if vol_ratio < self.params.volume_multiplier_2x {
             return ContextState::NoPlay;
         }
 
-        // 3. News Event Trigger
-        if !self.has_news {
-            // Requirement: "News event trigger"
-            // If no news, is it NoPlay? Usually high volume without news is suspicious or just technical breakout.
-            // Strict interpretation: Must have news.
-            return ContextState::NoPlay;
+        // Volume is between 2× and 3×: needs at least ONE qualifier (§9.2)
+        let has_sector = self.sector_momentum.as_ref()
+            .map(|s| s.is_favorable && s.change_pct.abs() >= self.params.sector_momentum_min_pct)
+            .unwrap_or(false);
+
+        if self.has_news || has_sector {
+            return ContextState::Play;
         }
 
-        // 4. Sector ETF Momentum
-        if let Some(ref sector) = self.sector_momentum {
-            // Check if sector is supportive?
-            // "Sector ETF momentum" listed as input. Logic usually: if sector is crashing, maybe don't go long?
-            // Or maybe we just need significant momentum (up or down).
-            // Let's assume we want supportive momentum (is_favorable flag handles direction).
-            if !sector.is_favorable {
-                return ContextState::NoPlay;
-            }
-        } else {
-            // Missing sector data
-            return ContextState::Undetermined;
-        }
-
-        ContextState::Play
+        // Volume ≥ 2× but no qualifier → Undetermined → reject (§9.2)
+        ContextState::Undetermined
     }
 }
 
@@ -132,43 +157,47 @@ mod tests {
         let ctx = engine.compute_context();
         assert_eq!(ctx.state, ContextState::Undetermined);
 
-        // 2. Set Volume - Low
-        engine.update_volume(100_000, 1_000_000, false);
-
-        // Volume condition failed (0.1x). The logic:
-        // vol_condition = false -> returns NoPlay immediately.
-        // It does NOT check sector data if volume is low.
-        // So we expect NoPlay here, NOT Undetermined.
+        // 2. Set Volume - Low (< 2x)
+        engine.update_volume(1_500_000, 1_000_000, false); // 1.5x
         assert_eq!(engine.compute_context().state, ContextState::NoPlay);
 
-        // Set Sector Data
-        engine.update_sector_momentum(SectorMomentum {
-            etf_symbol: "XLF".to_string(),
-            change_pct: 1.0,
-            is_favorable: true,
-        });
-
-        // Now we have volume (low) and sector. Should be NoPlay.
-        assert_eq!(engine.compute_context().state, ContextState::NoPlay);
-
-        // 3. High Volume, No News -> NoPlay
+        // 3. Set Volume - Medium (2.5x) but no qualifiers
         engine.update_volume(2_500_000, 1_000_000, false); // 2.5x
-        assert_eq!(engine.compute_context().state, ContextState::NoPlay);
+        assert_eq!(engine.compute_context().state, ContextState::Undetermined);
 
-        // 4. High Volume + News + Sector -> Play
+        // 4. Medium Volume + News -> Play
         engine.update_news(true);
         assert_eq!(engine.compute_context().state, ContextState::Play);
+        engine.update_news(false); // Reset
 
-        // 5. Volume Surge + News + Sector -> Play
-        engine.update_volume(500_000, 1_000_000, true); // Low ratio (0.5x) but SURGE=true
-        assert_eq!(engine.compute_context().state, ContextState::Play);
-
-        // 6. Unfavorable Sector -> NoPlay
+        // 5. Medium Volume + Sector -> Play
         engine.update_sector_momentum(SectorMomentum {
             etf_symbol: "XLF".to_string(),
-            change_pct: -1.0,
-            is_favorable: false,
+            change_pct: 2.5, // > 2.0%
+            is_favorable: true,
         });
+        assert_eq!(engine.compute_context().state, ContextState::Play);
+
+        // 6. Medium Volume + Weak Sector -> Undetermined
+        engine.update_sector_momentum(SectorMomentum {
+            etf_symbol: "XLF".to_string(),
+            change_pct: 1.0, // < 2.0%
+            is_favorable: true,
+        });
+        assert_eq!(engine.compute_context().state, ContextState::Undetermined);
+
+        // 7. High Volume (3x) + Surge -> Play (even without qualifiers)
+        engine.update_volume(3_000_000, 1_000_000, true); // 3.0x, surge=true
+        assert_eq!(engine.compute_context().state, ContextState::Play);
+
+        // 8. Churning -> NoPlay
+        engine.update_price_window(100.0, 99.95); // range < 0.05% < 1%
+        assert!(engine.is_churning);
         assert_eq!(engine.compute_context().state, ContextState::NoPlay);
+
+        // 9. Not Churning -> Play (revert to previous valid state)
+        engine.update_price_window(100.0, 98.0); // range 2% > 1%
+        assert!(!engine.is_churning);
+        assert_eq!(engine.compute_context().state, ContextState::Play);
     }
 }

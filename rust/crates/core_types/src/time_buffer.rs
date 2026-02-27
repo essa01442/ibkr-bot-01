@@ -82,6 +82,32 @@ impl<T> TimeRingBuffer<T> {
             capacity: self.capacity,
         }
     }
+
+    pub fn min_max(&self) -> (Option<T>, Option<T>)
+    where
+        T: PartialOrd + Copy,
+    {
+        if self.is_empty() {
+            return (None, None);
+        }
+
+        let mut min_val: Option<T> = None;
+        let mut max_val: Option<T> = None;
+
+        for item in self.iter() {
+            match min_val {
+                None => min_val = Some(*item),
+                Some(m) if *item < m => min_val = Some(*item),
+                _ => {}
+            }
+            match max_val {
+                None => max_val = Some(*item),
+                Some(m) if *item > m => max_val = Some(*item),
+                _ => {}
+            }
+        }
+        (min_val, max_val)
+    }
 }
 
 // Iterator implementation

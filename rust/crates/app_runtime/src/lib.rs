@@ -9,7 +9,7 @@ use event_bus::{ChannelConfig, EventBus, SystemChannels};
 use metrics_observability::{
     log_decision, DecisionAction, DecisionLog, LatencyTracker, SLA_LIMIT_MICROS,
 };
-use risk_engine::sizing::{PositionSizer, SizingConfig};
+use risk_engine::sizing::{PositionSizer, PricingModel, SizingConfig};
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -348,8 +348,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("FastLoop Task started");
 
         let guard_config = risk_engine::guards::GuardConfig::default();
+
+        let pricing_model = PricingModel {
+            commission_per_share: config.pricing.commission_per_share,
+            sec_fee_rate: config.pricing.sec_fee_rate,
+            taf_rate: config.pricing.taf_rate,
+            slippage_alpha: config.pricing.slippage_alpha,
+            slippage_beta: config.pricing.slippage_beta,
+            min_net_profit_usd: config.pricing.min_net_profit_usd,
+        };
+
         let mut tape_engine =
-            tape_engine::TapeEngine::new(risk_state_fast, guard_config, config.tape.clone());
+            tape_engine::TapeEngine::new(risk_state_fast, guard_config, config.tape.clone(), pricing_model);
 
         let sizing_config = SizingConfig {
             risk_per_trade_usd: config.risk.risk_per_trade_usd,

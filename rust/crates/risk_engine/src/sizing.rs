@@ -97,6 +97,79 @@ impl PositionSizer {
     }
 }
 
+/// Full fee and slippage model per §18.1 and §18.2.
+#[derive(Debug, Clone)]
+pub struct PricingModel {
+    pub commission_per_share: f64,
+    pub sec_fee_rate: f64,
+    pub taf_rate: f64,
+    pub slippage_alpha: f64,
+    pub slippage_beta: f64,
+    pub min_net_profit_usd: f64,
+}
+
+impl PricingModel {
+    /// Total brokerage fees for a round-trip (buy + sell) trade.
+    /// commission × 2 sides, SEC fee on sell side only, TAF on sell side.
+    pub fn total_fees(&self, shares: u32, entry_price: f64, exit_price: f64) -> f64 {
+        let shares_f = shares as f64;
+        let commission = self.commission_per_share * shares_f * 2.0; // buy + sell
+        let sec_fee = self.sec_fee_rate * (exit_price * shares_f);
+        let taf = self.taf_rate * shares_f;
+        commission + sec_fee + taf
+    }
+
+    /// Expected slippage per §18.2.
+    /// ImpactSlippage = beta × (shares / avg_depth_top3)
+    /// SlippagePerShare = max(spread/2, alpha × vol_1m × price, ImpactSlippage)
+    pub fn expected_slippage(
+        &self,
+        shares: u32,
+        price: f64,
+        spread_cents: f64,
+        vol_1m: f64,
+        avg_depth_top3: f64,
+    ) -> f64 {
+        let shares_f = shares as f64;
+        let half_spread = spread_cents / 200.0; // convert cents to dollar, halved
+        let volatility_slip = self.slippage_alpha * vol_1m * price;
+        let impact_slip = if avg_depth_top3 > 0.0 {
+            self.slippage_beta * (shares_f / avg_depth_top3)
+        } else {
+            self.slippage_beta * 0.01 // fallback: 1% impact if no depth data
+        };
+        let slip_per_share = half_spread.max(volatility_slip).max(impact_slip);
+        slip_per_share * shares_f
+    }
+
+    /// Gross profit estimate per §18 — min(50.0, 10% price move × shares).
+    pub fn gross(&self, entry_price: f64, shares: u32) -> f64 {
+        let target_10pct = entry_price * 0.10 * (shares as f64);
+        target_10pct.min(50.0_f64)
+    }
+
+    /// Full ExpectedNet = Gross − TotalFees − ExpectedSlippage per §18.3.
+    /// Returns the net profit estimate. Negative = reject.
+    pub fn expected_net(
+        &self,
+        shares: u32,
+        entry_price: f64,
+        spread_cents: f64,
+        vol_1m: f64,
+        avg_depth_top3: f64,
+    ) -> f64 {
+        if shares == 0 {
+            return -1.0;
+        }
+        // Exit price estimate = entry + 10% (optimistic, for fee calculation)
+        let exit_price_est = entry_price * 1.10;
+        let gross = self.gross(entry_price, shares);
+        let fees = self.total_fees(shares, entry_price, exit_price_est);
+        let slippage = self.expected_slippage(shares, entry_price, spread_cents, vol_1m, avg_depth_top3);
+        gross - fees - slippage
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +256,55 @@ mod tests {
         // Volume 50,000. Cap = 500 shares.
         let shares = sizer.calculate_size(100_000.0, 10.00, 9.90, 50_000, 100_000.0);
         assert_eq!(shares, 500);
+    }
+
+    #[test]
+    fn test_pricing_model_fees() {
+        let model = PricingModel {
+            commission_per_share: 0.005,
+            sec_fee_rate: 0.0000278,
+            taf_rate: 0.000166,
+            slippage_alpha: 0.5,
+            slippage_beta: 0.3,
+            min_net_profit_usd: 0.10,
+        };
+        // 100 shares at $5.00, exit at $5.50
+        let fees = model.total_fees(100, 5.00, 5.50);
+        // Commission: 0.005 * 100 * 2 = $1.00
+        // SEC: 0.0000278 * 5.50 * 100 = $0.01529
+        // TAF: 0.000166 * 100 = $0.0166
+        assert!(fees > 1.0 && fees < 1.1, "fees = {fees}");
+    }
+
+    #[test]
+    fn test_pricing_model_expected_net_positive() {
+        let model = PricingModel {
+            commission_per_share: 0.005,
+            sec_fee_rate: 0.0000278,
+            taf_rate: 0.000166,
+            slippage_alpha: 0.5,
+            slippage_beta: 0.3,
+            min_net_profit_usd: 0.10,
+        };
+        // 200 shares at $2.00, tight spread, low vol, good depth
+        let net = model.expected_net(200, 2.00, 2.0, 0.001, 10000.0);
+        // Gross = min(50, 2.00*0.10*200) = min(50, 40) = 40
+        // Should have positive net after fees
+        assert!(net > 0.0, "expected_net = {net}");
+    }
+
+    #[test]
+    fn test_pricing_model_expected_net_negative_high_fees() {
+        let model = PricingModel {
+            commission_per_share: 0.005,
+            sec_fee_rate: 0.0000278,
+            taf_rate: 0.000166,
+            slippage_alpha: 0.5,
+            slippage_beta: 0.3,
+            min_net_profit_usd: 0.10,
+        };
+        // 1 share at $0.30 — fees will overwhelm gross
+        let net = model.expected_net(1, 0.30, 10.0, 0.05, 100.0);
+        assert!(net < 0.0, "should be net negative for tiny position: {net}");
     }
 }

@@ -9,7 +9,7 @@ use event_bus::{ChannelConfig, EventBus, SystemChannels};
 use metrics_observability::{
     log_decision, DecisionAction, DecisionLog, LatencyTracker, SLA_LIMIT_MICROS,
 };
-use risk_engine::sizing::{PositionSizer, SizingConfig};
+use risk_engine::sizing::{PositionSizer, PricingModel, SizingConfig};
 use std::collections::HashMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -348,8 +348,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("FastLoop Task started");
 
         let guard_config = risk_engine::guards::GuardConfig::default();
+
+        let pricing_model = PricingModel {
+            commission_per_share: config.pricing.commission_per_share,
+            sec_fee_rate: config.pricing.sec_fee_rate,
+            taf_rate: config.pricing.taf_rate,
+            slippage_alpha: config.pricing.slippage_alpha,
+            slippage_beta: config.pricing.slippage_beta,
+            min_net_profit_usd: config.pricing.min_net_profit_usd,
+        };
+
         let mut tape_engine =
-            tape_engine::TapeEngine::new(risk_state_fast, guard_config, config.tape.clone());
+            tape_engine::TapeEngine::new(risk_state_fast, guard_config, config.tape.clone(), pricing_model);
 
         let sizing_config = SizingConfig {
             risk_per_trade_usd: config.risk.risk_per_trade_usd,
@@ -411,6 +421,78 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
 
+            // Pre-calculate sizing for validation
+            let mut calculated_qty = 0;
+            let mut calculated_stop_price = 0.0;
+            let mut calculated_stop_dist = 0.0;
+
+            if let core_types::EventKind::Tick(tick) = event.kind {
+                let daily_volume =
+                    if let Some(state) = tape_engine.symbol_states.get(&event.symbol_id) {
+                        state
+                            .daily_context
+                            .as_ref()
+                            .map(|c| c.volume_profile.avg_20d_volume)
+                            .unwrap_or(0)
+                    } else {
+                        0
+                    };
+
+                // §16.1 StopDistance: max(Stop_Guards, Stop_ATR, MinStopDistance)
+                let tick_size = 0.01_f64; // penny stocks
+                let state_atr = tape_engine.symbol_states
+                    .get(&event.symbol_id)
+                    .map(|s| s.tape.atr_1m)
+                    .unwrap_or(0.0);
+                let spread_half = tape_engine.symbol_states
+                    .get(&event.symbol_id)
+                    .map(|s| s.tape.spread_cents / 100.0)
+                    .unwrap_or(0.0);
+                let stop_guards = (2.0 * tick_size).max(0.25 * spread_half * 2.0);
+                let stop_atr = if state_atr > 0.0 {
+                    state_atr * config.pricing.k_atr
+                } else {
+                    0.0
+                };
+                let min_stop = config.pricing.min_stop_abs_usd
+                    .max(config.pricing.min_stop_pct * tick.price)
+                    .max(0.8 * state_atr);
+                let stop_dist = stop_guards.max(stop_atr).max(min_stop)
+                    .max(position_sizer.config.min_stop_distance_cents);
+                let stop_price = tick.price - stop_dist;
+
+                // Cache for order execution
+                calculated_stop_dist = stop_dist;
+                calculated_stop_price = stop_price;
+
+                let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
+                let available_cash = if let Ok(guard) = tape_engine.risk_state.lock() {
+                    guard.available_cash(today_ordinal, account_capital)
+                } else {
+                    0.0
+                };
+
+                calculated_qty = position_sizer.calculate_size(
+                    account_capital,
+                    tick.price,
+                    stop_price,
+                    daily_volume,
+                    available_cash,
+                );
+
+                // §16.3 — reduce size after daily target
+                if tape_engine.daily_target_reached {
+                    calculated_qty = (calculated_qty / 2).max(1);
+                }
+                // After 10% daily gross (≈ $2500 on $25k account), reduce to 25%
+                let daily_gross_10pct = account_capital * 0.10;
+                if tape_engine.global_realized_pnl >= daily_gross_10pct && daily_gross_10pct > 0.0 {
+                    calculated_qty = (calculated_qty / 4).max(1);
+                }
+
+                tape_engine.last_sizing_shares = calculated_qty;
+            }
+
             let decision_result = tape_engine.on_event(&event);
 
             let ts_decision_end = now_micros();
@@ -434,58 +516,27 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 };
                 let _ = decision_tx.try_send(log);
 
-                if decision_result.is_ok() {
-                    let daily_volume =
-                        if let Some(state) = tape_engine.symbol_states.get(&event.symbol_id) {
-                            state
-                                .daily_context
-                                .as_ref()
-                                .map(|c| c.volume_profile.avg_20d_volume)
-                                .unwrap_or(0)
-                        } else {
-                            0
-                        };
-
-                    let stop_dist = position_sizer.config.min_stop_distance_cents;
-                    let stop_price = tick.price - stop_dist;
-
-                    let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
-                    let available_cash = if let Ok(guard) = tape_engine.risk_state.lock() {
-                        guard.available_cash(today_ordinal, account_capital)
-                    } else {
-                        0.0
+                if decision_result.is_ok() && calculated_qty > 0 {
+                    let request = OrderRequest {
+                        symbol_id: event.symbol_id,
+                        side: Side::Bid,
+                        qty: calculated_qty,
+                        order_type: OrderType::Limit,
+                        limit_price: Some(tick.price),
+                        stop_price: None,
+                        tif: TimeInForce::IOC,
+                        idempotency_key: format!("{}-{}", event.symbol_id.0, event.ts_src),
+                        take_profit_price: Some(tick.price + 2.0 * calculated_stop_dist),
+                        stop_loss_price: Some(calculated_stop_price),
                     };
 
-                    let qty = position_sizer.calculate_size(
-                        account_capital,
-                        tick.price,
-                        stop_price,
-                        daily_volume,
-                        available_cash,
-                    );
-
-                    if qty > 0 {
-                        let request = OrderRequest {
-                            symbol_id: event.symbol_id,
-                            side: Side::Bid,
-                            qty,
-                            order_type: OrderType::Limit,
-                            limit_price: Some(tick.price),
-                            stop_price: None,
-                            tif: TimeInForce::IOC,
-                            idempotency_key: format!("{}-{}", event.symbol_id.0, event.ts_src),
-                            take_profit_price: Some(tick.price + 2.0 * stop_dist),
-                            stop_loss_price: Some(stop_price),
-                        };
-
-                        if let Err(e) = order_tx.try_send(request) {
-                            match e {
-                                mpsc::error::TrySendError::Full(_) => {
-                                    log::warn!("OMS Order Queue Full!")
-                                }
-                                mpsc::error::TrySendError::Closed(_) => {
-                                    log::error!("OMS Order Queue Closed!")
-                                }
+                    if let Err(e) = order_tx.try_send(request) {
+                        match e {
+                            mpsc::error::TrySendError::Full(_) => {
+                                log::warn!("OMS Order Queue Full!")
+                            }
+                            mpsc::error::TrySendError::Closed(_) => {
+                                log::error!("OMS Order Queue Closed!")
                             }
                         }
                     }

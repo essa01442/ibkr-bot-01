@@ -1,0 +1,36 @@
+# Calendar Risk Fallback — §27
+# Used when automated API (Tradier/BLS RSS) is unavailable.
+# If this file is older than 7 days and API is also unavailable, assume Calendar = ON for the day.
+# Format: date = "YYYY-MM-DD", event = description, window_before_min and window_after_min in minutes.
+
+last_updated = "2026-02-27"
+
+[[events]]
+date              = "2026-03-12"
+event             = "CPI"
+window_before_min = 60
+window_after_min  = 30
+
+[[events]]
+date              = "2026-03-19"
+event             = "FOMC"
+window_before_min = 60
+window_after_min  = 30
+
+[[events]]
+date              = "2026-04-03"
+event             = "NFP"
+window_before_min = 60
+window_after_min  = 30
+
+[[events]]
+date              = "2026-04-15"
+event             = "CPI"
+window_before_min = 60
+window_after_min  = 30
+
+[[events]]
+date              = "2026-04-29"
+event             = "FOMC"
+window_before_min = 60
+window_after_min  = 30

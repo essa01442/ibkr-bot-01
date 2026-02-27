@@ -9,7 +9,7 @@
 
 use core_types::{
     config::TapeConfig, ColdStartState, ContextState, DailyContext, Event, EventKind, MtfAnalysis,
-    RegimeState, RejectReason, SymbolId, TapeComponentScores, TickData, Tier,
+    RegimeState, RejectReason, SymbolId, TapeComponentScores, TapeMetrics, TickData, Tier,
 };
 use risk_engine::{
     guards::{GuardConfig, GuardEvaluator},
@@ -57,29 +57,6 @@ impl SymbolState {
             current_unrealized_pnl: 0.0,
         }
     }
-}
-
-#[derive(Debug, Default)]
-pub struct TapeMetrics {
-    pub price: f64,
-    pub bid: f64,
-    pub ask: f64,
-    pub bid_size: u32,
-    pub ask_size: u32,
-    pub volume: u64,
-
-    // Aggressive metrics for scoring
-    pub rate_ticks_per_sec: f64,
-    pub aggressive_buy_ratio: f64,
-    pub large_print_score: f64,
-    pub absorption_score: f64,
-    pub buy_limit_support_score: f64,
-    pub spread_cents: f64,
-    pub is_reversal: bool,
-
-    // For Anti-Chase (simplified)
-    pub vwap: f64,
-    pub atr: f64,
 }
 
 pub struct TapeEngine {

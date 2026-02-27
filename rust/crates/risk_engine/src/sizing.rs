@@ -111,6 +111,7 @@ pub struct PricingModel {
 impl PricingModel {
     /// Total brokerage fees for a round-trip (buy + sell) trade.
     /// commission × 2 sides, SEC fee on sell side only, TAF on sell side.
+    pub fn total_fees(&self, shares: u32, _entry_price: f64, exit_price: f64) -> f64 {
     pub fn total_fees(&self, shares: u32, entry_price: f64, exit_price: f64) -> f64 {
         let shares_f = shares as f64;
         let commission = self.commission_per_share * shares_f * 2.0; // buy + sell

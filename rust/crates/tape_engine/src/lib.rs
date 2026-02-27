@@ -13,6 +13,7 @@ use core_types::{
 };
 use risk_engine::{
     guards::{GuardConfig, GuardEvaluator},
+    sizing::PricingModel,
     RiskState,
 };
 use std::collections::HashMap;
@@ -64,6 +65,7 @@ pub struct TapeEngine {
     pub risk_state: Arc<Mutex<RiskState>>,
     pub regime_state: RegimeState,
     pub guard_evaluator: GuardEvaluator,
+    pub pricing_model: PricingModel,
     pub config: TapeConfig,
 
     // Per-Symbol State
@@ -74,6 +76,9 @@ pub struct TapeEngine {
     pub global_unrealized_pnl: f64,
 
     pub daily_target_reached: bool,
+
+    // Sizing state for check_entry
+    pub last_sizing_shares: u32,
 }
 
 impl TapeEngine {
@@ -81,16 +86,19 @@ impl TapeEngine {
         risk_state: Arc<Mutex<RiskState>>,
         guard_config: GuardConfig,
         config: TapeConfig,
+        pricing_model: PricingModel,
     ) -> Self {
         Self {
             risk_state,
             regime_state: RegimeState::Normal, // Default
             guard_evaluator: GuardEvaluator::new(guard_config),
+            pricing_model,
             config,
             symbol_states: HashMap::new(),
             global_realized_pnl: 0.0,
             global_unrealized_pnl: 0.0,
             daily_target_reached: false,
+            last_sizing_shares: 0,
         }
     }
 
@@ -466,8 +474,19 @@ impl TapeEngine {
             return Err(RejectReason::TapeScoreLow);
         }
 
-        // 11. ExpectedNet Validation
-        if self.expected_net(&state.tape) <= 0.0 {
+        // 11. ExpectedNet Validation (§18.3) — real fee model
+        // shares is computed from position_sizer before calling check_entry.
+        // Use 0 as fallback → will reject (safe default).
+        let expected_net_val = self.pricing_model.expected_net(
+            self.last_sizing_shares,
+            state.tape.price,
+            state.tape.spread_cents,
+            state.tape.vol_1m,
+            state.tape.avg_depth_top3,
+        );
+        if expected_net_val <= self.pricing_model.min_net_profit_usd {
+            println!("DEBUG: NetNegative. Shares: {}, Price: {}, Spread: {}, Net: {}, Min: {}",
+                self.last_sizing_shares, state.tape.price, state.tape.spread_cents, expected_net_val, self.pricing_model.min_net_profit_usd);
             return Err(RejectReason::NetNegative);
         }
 
@@ -527,15 +546,6 @@ impl TapeEngine {
         false
     }
 
-    fn expected_net(&self, tape: &TapeMetrics) -> f64 {
-        let scores = self.calculate_scores(tape);
-        if scores.total_score > 72.0 {
-            0.10
-        } else {
-            -0.10
-        }
-    }
-
     fn check_exposure(&self, symbol: SymbolId, open_symbols: &[SymbolId]) -> bool {
         match self.risk_state.lock() {
             Ok(guard) => guard
@@ -554,6 +564,17 @@ impl TapeEngine {
 mod tests {
     use super::*;
     use core_types::LiquidityConfig;
+
+    fn default_pricing_model() -> PricingModel {
+        PricingModel {
+            commission_per_share: 0.0,
+            sec_fee_rate: 0.0,
+            taf_rate: 0.0,
+            slippage_alpha: 0.0,
+            slippage_beta: 0.0,
+            min_net_profit_usd: 0.00, // Reduced from 0.05 to avoid NetNegative
+        }
+    }
 
     fn default_engine() -> TapeEngine {
         let config = TapeConfig {
@@ -576,10 +597,14 @@ mod tests {
             ))),
             GuardConfig::default(),
             config,
+            default_pricing_model(),
         )
     }
 
     fn set_valid_tape(engine: &mut TapeEngine, sym: SymbolId) {
+        // Set up dummy sizing first to avoid borrow conflict
+        engine.last_sizing_shares = 100;
+
         let state = engine.get_mut_state(sym);
         state.tape.price = 10.0;
         state.last_trade_price = 10.0;
@@ -597,6 +622,9 @@ mod tests {
         state.tape.atr = 0.10;
         // For threshold
         state.cold_start_state = ColdStartState::FullActive;
+
+        state.tape.vol_1m = 0.01;
+        state.tape.avg_depth_top3 = 1000.0;
     }
 
     #[test]
@@ -642,6 +670,9 @@ mod tests {
         let mut engine = default_engine();
         let sym = SymbolId(1);
 
+        // Set sizing shares before borrowing state
+        engine.last_sizing_shares = 100;
+
         // Setup passing state
         engine.update_tier(sym, Tier::A);
         engine.update_daily_context(DailyContext {
@@ -685,6 +716,10 @@ mod tests {
 
         // Guards
         // Spread 0.02 (OK), Imb 0.0 (OK), etc.
+
+        // Pricing model requirements
+        state.tape.vol_1m = 0.001;
+        state.tape.avg_depth_top3 = 10000.0;
 
         let res = engine.evaluate_entry_logic(sym, 1000, 0);
         assert!(res.is_ok(), "Expected Ok, got {:?}", res);

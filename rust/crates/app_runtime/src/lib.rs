@@ -353,10 +353,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
         let sizing_config = SizingConfig {
             risk_per_trade_usd: config.risk.risk_per_trade_usd,
-            min_stop_distance_cents: 0.05,
+            min_stop_distance_cents: config.pricing.min_stop_abs_usd,
             max_position_pct_nav: config.risk.max_position_pct,
-            liquidity_cap_pct: 0.01,
-            budget_cap_usd: 5000.0, // Default or derived from budget_cap_pct * 25k?
+            liquidity_cap_pct: 0.001, // 0.1% of ADDV per §16.2
+            budget_cap_usd: account_capital * config.risk.budget_cap_pct,
         };
         let position_sizer = PositionSizer::new(sizing_config);
 

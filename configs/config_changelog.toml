@@ -1,0 +1,10 @@
+# Config Change Log — §28.3
+# Every change to any value in default.toml must be recorded here with date and reason.
+# Format: date, key, old_value, new_value, reason
+
+[[changes]]
+date      = "2026-02-27"
+key       = "initial"
+old_value = "n/a"
+new_value = "n/a"
+reason    = "Initial config — baseline values from spec v7.0"

@@ -96,9 +96,6 @@ pub struct ContextConfig {
     pub churn_window_minutes: u64,
     pub churn_max_move_pct: f64,
     pub snap_min_trade_count: u64,
-    pub churn_window_minutes: u32,
-    pub churn_max_move_pct: f64,
-    pub snap_min_trade_count: u32,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -184,48 +181,6 @@ snap_min_trade_count = 5
 
 [correlation]
 threshold = 0.40
-k_atr                  = 2.0
-min_stop_pct           = 0.012
-min_stop_abs_usd       = 0.02
-anti_chase_runup_pct   = 0.02
-slippage_alpha         = 0.5
-slippage_beta          = 0.3
-sec_fee_rate           = 0.0000278
-taf_rate               = 0.000166
-commission_per_share   = 0.005
-min_net_profit_usd     = 0.10
-
-[regime]
-atr_normal_max         = 0.0018
-atr_caution_max        = 0.0028
-breadth_normal_min     = 0.45
-breadth_caution_min    = 0.35
-widening_caution_pct   = 0.25
-widening_riskoff_pct   = 0.50
-
-[session]
-regular_open_et        = "09:30"
-trading_start_et       = "09:45"
-trading_end_et         = "15:45"
-regular_close_et       = "16:00"
-pre_after_enabled      = false
-pre_after_min_volume   = 100_000
-
-[ibkr]
-subscription_budget    = 80
-subscription_warn_pct  = 0.80
-slow_loop_pacing_per_min = 30
-
-[context]
-volume_multiplier_2x   = 2.0
-volume_multiplier_3x   = 3.0
-sector_momentum_min_pct = 2.0
-churn_window_minutes   = 10
-churn_max_move_pct     = 0.01
-snap_min_trade_count   = 5
-
-[correlation]
-threshold              = 0.40
 "#;
         let config: AppConfig = toml::from_str(toml_str).expect("config must parse");
 
@@ -244,14 +199,6 @@ threshold              = 0.40
         assert_eq!(config.correlation.threshold, 0.40);
         assert_eq!(config.context.churn_window_minutes, 10);
         assert_eq!(config.context.snap_min_trade_count, 5);
-        // Verify new fields
-        assert_eq!(config.pricing.k_atr, 2.0);
-        assert_eq!(config.pricing.min_net_profit_usd, 0.10);
-        assert_eq!(config.regime.atr_normal_max, 0.0018);
-        assert_eq!(config.session.regular_open_et, "09:30");
-        assert_eq!(config.ibkr.subscription_budget, 80);
-        assert_eq!(config.context.volume_multiplier_2x, 2.0);
-        assert_eq!(config.correlation.threshold, 0.40);
     }
 
     #[test]

@@ -3,7 +3,9 @@
 //! Manages the tiered watchlist system (Tier A, Tier B, Tier C).
 //! Handles pacing, upgrades, downgrades, and slow-moving context analysis (MTF, Correlation).
 
-use core_types::{ColdStartState, SubscriptionStatus, SymbolId, Tier};
+use core_types::{
+    ColdStartState, DailyContext, MtfAnalysis, RegimeState, SubscriptionStatus, SymbolId, Tier,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -22,6 +24,9 @@ pub struct WatchlistSnapshot {
     pub tier_b_count: usize,
     pub tier_c_count: usize,
     pub total_subscriptions: usize,
+    pub regime: RegimeState,
+    pub contexts: HashMap<SymbolId, DailyContext>,
+    pub mtf_results: HashMap<SymbolId, MtfAnalysis>,
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +88,9 @@ pub struct Watchlist {
     pub tier_a: HashMap<SymbolId, TierData>,
     pub tier_b: HashMap<SymbolId, TierData>,
     pub tier_c: HashMap<SymbolId, TierData>,
+    pub regime: RegimeState,
+    pub contexts: HashMap<SymbolId, DailyContext>,
+    pub mtf_results: HashMap<SymbolId, MtfAnalysis>,
 }
 
 impl Default for Watchlist {
@@ -97,6 +105,9 @@ impl Watchlist {
             tier_a: HashMap::new(),
             tier_b: HashMap::new(),
             tier_c: HashMap::new(),
+            regime: RegimeState::Normal,
+            contexts: HashMap::new(),
+            mtf_results: HashMap::new(),
         }
     }
 
@@ -106,7 +117,24 @@ impl Watchlist {
             tier_b_count: self.tier_b.len(),
             tier_c_count: self.tier_c.len(),
             total_subscriptions: self.total_subscriptions(),
+            regime: self.regime,
+            contexts: self.contexts.clone(),
+            mtf_results: self.mtf_results.clone(),
         }
+    }
+
+    pub fn update_regime(&mut self, regime: RegimeState) {
+        self.regime = regime;
+    }
+
+    pub fn update_symbol_context(
+        &mut self,
+        symbol_id: SymbolId,
+        context: DailyContext,
+        mtf: MtfAnalysis,
+    ) {
+        self.contexts.insert(symbol_id, context);
+        self.mtf_results.insert(symbol_id, mtf);
     }
 
     pub fn get_tier(&self, symbol_id: SymbolId) -> Option<Tier> {

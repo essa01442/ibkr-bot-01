@@ -480,6 +480,16 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     available_cash,
                 );
 
+                // §16.3 — reduce size after daily target
+                if tape_engine.daily_target_reached {
+                    calculated_qty = (calculated_qty / 2).max(1);
+                }
+                // After 10% daily gross (≈ $2500 on $25k account), reduce to 25%
+                let daily_gross_10pct = account_capital * 0.10;
+                if tape_engine.global_realized_pnl >= daily_gross_10pct && daily_gross_10pct > 0.0 {
+                    calculated_qty = (calculated_qty / 4).max(1);
+                }
+
                 tape_engine.last_sizing_shares = calculated_qty;
             }
 

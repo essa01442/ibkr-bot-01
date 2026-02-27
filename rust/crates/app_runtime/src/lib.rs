@@ -337,6 +337,11 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             core_types::SymbolId,
             mtf_engine::MtfEngine,
         > = std::collections::HashMap::new();
+        // Price history for churn detection
+        let mut price_history: std::collections::HashMap<
+            core_types::SymbolId,
+            core_types::TimeRingBuffer<f64>,
+        > = std::collections::HashMap::new();
 
         let context_params = context_engine::ContextParams {
             volume_multiplier_2x: config.context.volume_multiplier_2x,
@@ -401,6 +406,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 context_params.clone(),
                             )
                         });
+
+                    // Update price window for churn detection
+                    let ring_buffer = price_history.entry(event.symbol_id).or_insert_with(|| {
+                        core_types::TimeRingBuffer::new(
+                            1000, // capacity
+                            (context_params.churn_window_minutes * 60 * 1_000_000) as u64,
+                        )
+                    });
+                    ring_buffer.push(event.ts_src, tick.price);
+                    let (min_p, max_p) = ring_buffer.min_max();
+                    ctx_eng.update_price_window(max_p.unwrap_or(0.0), min_p.unwrap_or(0.0));
+
                     // Volume will be updated via Snapshot events — tick just triggers recompute
                     let daily_ctx = ctx_eng.compute_context();
 

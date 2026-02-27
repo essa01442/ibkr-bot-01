@@ -37,6 +37,8 @@ pub struct TierData {
     pub last_activity: u64, // timestamp
     pub cold_start_state: ColdStartState,
     pub ticks_in_warm_state: u64,
+    pub daily_context: Option<DailyContext>,
+    pub mtf_analysis: Option<MtfAnalysis>,
 }
 
 impl TierData {
@@ -48,6 +50,8 @@ impl TierData {
             last_activity: 0,
             cold_start_state: ColdStartState::ColdStart,
             ticks_in_warm_state: 0,
+            daily_context: None,
+            mtf_analysis: None,
         }
     }
 
@@ -88,6 +92,7 @@ pub struct Watchlist {
     pub tier_a: HashMap<SymbolId, TierData>,
     pub tier_b: HashMap<SymbolId, TierData>,
     pub tier_c: HashMap<SymbolId, TierData>,
+    pub current_regime: RegimeState,
     pub regime: RegimeState,
     pub contexts: HashMap<SymbolId, DailyContext>,
     pub mtf_results: HashMap<SymbolId, MtfAnalysis>,
@@ -105,6 +110,7 @@ impl Watchlist {
             tier_a: HashMap::new(),
             tier_b: HashMap::new(),
             tier_c: HashMap::new(),
+            current_regime: RegimeState::Normal,
             regime: RegimeState::Normal,
             contexts: HashMap::new(),
             mtf_results: HashMap::new(),
@@ -112,11 +118,47 @@ impl Watchlist {
     }
 
     pub fn snapshot(&self) -> WatchlistSnapshot {
+        let mut contexts: HashMap<SymbolId, DailyContext> = HashMap::new();
+        let mut mtf_results: HashMap<SymbolId, MtfAnalysis> = HashMap::new();
+
+        for (id, data) in self
+            .tier_a
+            .iter()
+            .chain(self.tier_b.iter())
+            .chain(self.tier_c.iter())
+        {
+            if let Some(ctx) = &data.daily_context {
+                contexts.insert(*id, ctx.clone());
+            }
+            if let Some(mtf) = &data.mtf_analysis {
+                mtf_results.insert(*id, mtf.clone());
+            }
+        }
+
         WatchlistSnapshot {
             tier_a_count: self.tier_a.len(),
             tier_b_count: self.tier_b.len(),
             tier_c_count: self.tier_c.len(),
             total_subscriptions: self.total_subscriptions(),
+            regime: self.current_regime,
+            contexts,
+            mtf_results,
+        }
+    }
+
+    pub fn update_regime(&mut self, regime: RegimeState) {
+        self.current_regime = regime;
+    }
+
+    pub fn update_symbol_context(
+        &mut self,
+        symbol_id: SymbolId,
+        daily_ctx: DailyContext,
+        mtf: MtfAnalysis,
+    ) {
+        if let Some(data) = self.get_data_mut(symbol_id) {
+            data.daily_context = Some(daily_ctx);
+            data.mtf_analysis = Some(mtf);
             regime: self.regime,
             contexts: self.contexts.clone(),
             mtf_results: self.mtf_results.clone(),

@@ -6,37 +6,44 @@
 use core_types::{DataQuality, RegimeState};
 use serde::{Deserialize, Serialize};
 
+/// Regime thresholds per §11. Values are loaded from AppConfig.regime at startup.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegimeParams {
-    pub max_atr_spy: f64,
-    pub min_breadth: f64,
-    pub max_breadth: f64,
-    pub max_spread_width: f64,
+    /// ATR(SPY 1m) threshold for Normal regime (§11) — e.g. 0.0018 = 0.18%
+    pub atr_normal_max: f64,
+    /// ATR(SPY 1m) threshold for Caution → Risk-Off boundary
+    pub atr_caution_max: f64,
+    /// Market breadth (fraction 0..1) minimum for Normal
+    pub breadth_normal_min: f64,
+    /// Market breadth minimum for Caution → Risk-Off boundary
+    pub breadth_caution_min: f64,
+    /// Spread widening fraction → Caution (e.g. 0.25 = +25%)
+    pub widening_caution_pct: f64,
+    /// Spread widening fraction → Risk-Off (e.g. 0.50 = +50%)
+    pub widening_riskoff_pct: f64,
 }
 
 impl Default for RegimeParams {
     fn default() -> Self {
         Self {
-            max_atr_spy: 2.5,
-            min_breadth: -2000.0,
-            max_breadth: 2000.0,
-            max_spread_width: 0.10, // 10 cents avg spread ? or percent? assuming absolute for now, but context matters.
-                                    // Prompt says "Spread widening". Let's assume a normalized metric or avg spread.
+            atr_normal_max: 0.0018,
+            atr_caution_max: 0.0028,
+            breadth_normal_min: 0.45,
+            breadth_caution_min: 0.35,
+            widening_caution_pct: 0.25,
+            widening_riskoff_pct: 0.50,
         }
     }
 }
 
 pub struct RegimeEngine {
     params: RegimeParams,
-
-    // Inputs
-    pub spy_atr_1m: f64,
-    pub market_breadth: f64,
-    pub avg_spread_width: f64,
+    pub spy_atr_1m: f64,        // As fraction (0.0018 = 0.18%)
+    pub market_breadth: f64,    // As fraction (0.45 = 45%)
+    pub spy_spread_baseline: f64, // Baseline SPY spread (set at session open)
+    pub avg_spread_current: f64,  // Current average spread width
     pub is_calendar_risk: bool,
     pub data_quality: DataQuality,
-
-    // Current State
     current_state: RegimeState,
 }
 
@@ -45,12 +52,23 @@ impl RegimeEngine {
         Self {
             params,
             spy_atr_1m: 0.0,
-            market_breadth: 0.0,
-            avg_spread_width: 0.0,
+            market_breadth: 0.45, // Default to Normal-range until first update
+            spy_spread_baseline: 0.0,
+            avg_spread_current: 0.0,
             is_calendar_risk: false,
             data_quality: DataQuality::Ok,
             current_state: RegimeState::Normal,
         }
+    }
+
+    pub fn set_spread_baseline(&mut self, baseline: f64) {
+        self.spy_spread_baseline = baseline;
+        self.recalc();
+    }
+
+    pub fn update_current_spread(&mut self, current: f64) {
+        self.avg_spread_current = current;
+        self.recalc();
     }
 
     pub fn update_atr(&mut self, spy_atr: f64) {
@@ -60,11 +78,6 @@ impl RegimeEngine {
 
     pub fn update_breadth(&mut self, breadth: f64) {
         self.market_breadth = breadth;
-        self.recalc();
-    }
-
-    pub fn update_spread_width(&mut self, avg_spread: f64) {
-        self.avg_spread_width = avg_spread;
         self.recalc();
     }
 
@@ -83,34 +96,39 @@ impl RegimeEngine {
     }
 
     pub fn calculate_state(&self) -> RegimeState {
-        // 1. Critical Overrides
+        // DataQuality degraded → Risk-Off immediately (§11 table)
         if self.data_quality != DataQuality::Ok {
             return RegimeState::RiskOff;
         }
 
-        if self.is_calendar_risk {
-            // Calendar risk might be Caution or RiskOff depending on severity.
-            // Requirement doesn't specify, but usually high impact news = RiskOff or at least Caution.
-            // Let's be conservative: RiskOff for the duration of the event window.
+        // Compute spread widening vs baseline
+        let widening = if self.spy_spread_baseline > 0.0 {
+            (self.avg_spread_current - self.spy_spread_baseline) / self.spy_spread_baseline
+        } else {
+            0.0
+        };
+
+        // Risk-Off conditions (any one → Risk-Off) per §11
+        if self.spy_atr_1m >= self.params.atr_caution_max
+            || self.market_breadth <= self.params.breadth_caution_min
+            || widening >= self.params.widening_riskoff_pct
+        {
             return RegimeState::RiskOff;
         }
 
-        // 2. Market Metrics
-        if self.spy_atr_1m > self.params.max_atr_spy {
+        // Calendar risk → Caution per §11 (not Risk-Off, unless other conditions)
+        if self.is_calendar_risk {
             return RegimeState::Caution;
         }
 
-        if self.market_breadth < self.params.min_breadth
-            || self.market_breadth > self.params.max_breadth
+        // Caution conditions (any one → Caution) per §11
+        if self.spy_atr_1m > self.params.atr_normal_max
+            || self.market_breadth < self.params.breadth_normal_min
+            || widening >= self.params.widening_caution_pct
         {
             return RegimeState::Caution;
         }
 
-        if self.avg_spread_width > self.params.max_spread_width {
-            return RegimeState::Caution;
-        }
-
-        // 3. Default
         RegimeState::Normal
     }
 
@@ -126,32 +144,30 @@ mod tests {
     #[test]
     fn test_transitions() {
         let mut engine = RegimeEngine::new(RegimeParams::default());
-
-        // Initial state
         assert_eq!(engine.state(), RegimeState::Normal);
 
-        // Data Quality Issue
         engine.update_data_quality(DataQuality::Degraded);
         assert_eq!(engine.state(), RegimeState::RiskOff);
         engine.update_data_quality(DataQuality::Ok);
         assert_eq!(engine.state(), RegimeState::Normal);
 
-        // Calendar Risk
         engine.update_calendar_risk(true);
-        assert_eq!(engine.state(), RegimeState::RiskOff);
+        assert_eq!(engine.state(), RegimeState::Caution); // Calendar → Caution, not RiskOff
         engine.update_calendar_risk(false);
         assert_eq!(engine.state(), RegimeState::Normal);
 
-        // ATR Breach
-        engine.update_atr(3.0); // Default max is 2.5
+        engine.update_atr(0.0020); // > 0.0018 → Caution
         assert_eq!(engine.state(), RegimeState::Caution);
-        engine.update_atr(1.0);
+        engine.update_atr(0.0030); // > 0.0028 → RiskOff
+        assert_eq!(engine.state(), RegimeState::RiskOff);
+        engine.update_atr(0.0015);
         assert_eq!(engine.state(), RegimeState::Normal);
 
-        // Breadth Breach
-        engine.update_breadth(-2500.0); // Default min is -2000
+        engine.update_breadth(0.40); // < 0.45 → Caution
         assert_eq!(engine.state(), RegimeState::Caution);
-        engine.update_breadth(0.0);
+        engine.update_breadth(0.30); // < 0.35 → RiskOff
+        assert_eq!(engine.state(), RegimeState::RiskOff);
+        engine.update_breadth(0.50);
         assert_eq!(engine.state(), RegimeState::Normal);
     }
 }

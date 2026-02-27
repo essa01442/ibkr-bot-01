@@ -312,25 +312,140 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     // 4. Spawn SlowLoop Task
     let mut slow_loop_rx = channels.slow_loop_rx;
     let slow_snapshot_writer = watchlist_snapshot.clone();
+    let risk_state_slow = risk_state.clone();
     task::spawn(async move {
         log::info!("SlowLoop Task started");
         let mut watchlist = watchlist_engine::Watchlist::new();
+
+        // Regime engine — one global instance
+        let regime_params = regime_engine::RegimeParams {
+            atr_normal_max: config.regime.atr_normal_max,
+            atr_caution_max: config.regime.atr_caution_max,
+            breadth_normal_min: config.regime.breadth_normal_min,
+            breadth_caution_min: config.regime.breadth_caution_min,
+            widening_caution_pct: config.regime.widening_caution_pct,
+            widening_riskoff_pct: config.regime.widening_riskoff_pct,
+        };
+        let mut regime_eng = regime_engine::RegimeEngine::new(regime_params);
+
+        // Per-symbol context and MTF engines
+        let mut context_engines: std::collections::HashMap<
+            core_types::SymbolId,
+            context_engine::ContextEngine,
+        > = std::collections::HashMap::new();
+        let mut mtf_engines: std::collections::HashMap<
+            core_types::SymbolId,
+            mtf_engine::MtfEngine,
+        > = std::collections::HashMap::new();
+
+        let context_params = context_engine::ContextParams {
+            volume_multiplier_2x: config.context.volume_multiplier_2x,
+            volume_multiplier_3x: config.context.volume_multiplier_3x,
+            sector_momentum_min_pct: config.context.sector_momentum_min_pct,
+            churn_max_move_pct: config.context.churn_max_move_pct,
+            churn_window_minutes: config.context.churn_window_minutes,
+        };
+
+        let mut subscription_count: u32 = 0;
+        let sub_limit = config.ibkr.subscription_budget;
+        let sub_warn_threshold = (sub_limit as f64 * config.ibkr.subscription_warn_pct) as u32;
+
         while let Some(event) = slow_loop_rx.recv().await {
             match event.kind {
-                EventKind::Tick(_) => {
-                    watchlist.update_tick_count(event.symbol_id);
-                    match watchlist.promote(event.symbol_id) {
-                        Ok(()) => {
-                            log::info!("Promoted symbol {:?}", event.symbol_id);
-                        }
-                        Err("Not TickReady") | Err("Already in Tier A") => {}
-                        Err(e) => {
-                            log::warn!("Promotion failed for {:?}: {}", event.symbol_id, e);
+                EventKind::Tick(tick) => {
+                    // Subscription count tracking
+                    if watchlist.get_tier(event.symbol_id) == Some(core_types::Tier::A) {
+                        // Already Tier A — count it
+                    } else {
+                        // Attempt Tier B/A promotion
+                        watchlist.update_tick_count(event.symbol_id);
+
+                        // Check subscription budget before promoting to Tier A
+                        if subscription_count >= sub_limit {
+                            log::warn!(
+                                "IBKR subscription limit ({}) reached — cannot promote {:?}",
+                                sub_limit,
+                                event.symbol_id
+                            );
+                        } else {
+                            if subscription_count >= sub_warn_threshold {
+                                log::warn!(
+                                    "IBKR subscriptions at {}% — slowing promotions",
+                                    (subscription_count * 100 / sub_limit)
+                                );
+                            }
+                            match watchlist.promote(event.symbol_id) {
+                                Ok(()) => {
+                                    subscription_count += 1;
+                                    log::info!(
+                                        "Promoted {:?} to Tier A (subs: {}/{})",
+                                        event.symbol_id,
+                                        subscription_count,
+                                        sub_limit
+                                    );
+                                }
+                                Err("Not TickReady") | Err("Already in Tier A") => {}
+                                Err(e) => {
+                                    log::warn!("Promotion failed for {:?}: {}", event.symbol_id, e);
+                                }
+                            }
                         }
                     }
+
+                    // Update per-symbol context engine
+                    let ctx_eng = context_engines
+                        .entry(event.symbol_id)
+                        .or_insert_with(|| {
+                            context_engine::ContextEngine::new(
+                                event.symbol_id,
+                                context_params.clone(),
+                            )
+                        });
+                    // Volume will be updated via Snapshot events — tick just triggers recompute
+                    let daily_ctx = ctx_eng.compute_context();
+
+                    // Update MTF engine price
+                    let mtf_eng = mtf_engines
+                        .entry(event.symbol_id)
+                        .or_insert_with(|| {
+                            mtf_engine::MtfEngine::new(
+                                event.symbol_id,
+                                mtf_engine::MtfParams::default(),
+                            )
+                        });
+                    mtf_eng.update_price(tick.price);
+                    let mtf_result = mtf_eng.evaluate();
+
+                    // Push updated context to the watchlist for FastLoop consumption
+                    watchlist.update_symbol_context(event.symbol_id, daily_ctx, mtf_result);
                 }
-                EventKind::Snapshot(_) => {
+                EventKind::Snapshot(snap) => {
                     watchlist.touch(event.symbol_id, event.ts_src);
+
+                    // Update context engine volume from snapshot
+                    if let Some(ctx_eng) = context_engines.get_mut(&event.symbol_id) {
+                        ctx_eng.update_volume(
+                            snap.volume,
+                            snap.avg_volume_20d,
+                            snap.volume
+                                > (snap.avg_volume_20d as f64
+                                    * context_params.volume_multiplier_3x) as u64,
+                        );
+                        ctx_eng.update_news(snap.has_news_today);
+                    }
+                }
+                EventKind::Heartbeat => {
+                    // Update regime engine from any available SPY metrics
+                    // In production, SPY ATR and breadth come from Python bridge via Snapshot
+                    let regime = regime_eng.state();
+                    watchlist.update_regime(regime);
+
+                    // Check monitor_only flag from regime
+                    if regime == core_types::RegimeState::RiskOff {
+                        if let Ok(mut guard) = risk_state_slow.lock() {
+                            guard.monitor_only = true;
+                        }
+                    }
                 }
                 _ => {}
             }

@@ -93,9 +93,6 @@ pub struct Watchlist {
     pub tier_b: HashMap<SymbolId, TierData>,
     pub tier_c: HashMap<SymbolId, TierData>,
     pub current_regime: RegimeState,
-    pub regime: RegimeState,
-    pub contexts: HashMap<SymbolId, DailyContext>,
-    pub mtf_results: HashMap<SymbolId, MtfAnalysis>,
 }
 
 impl Default for Watchlist {
@@ -111,9 +108,6 @@ impl Watchlist {
             tier_b: HashMap::new(),
             tier_c: HashMap::new(),
             current_regime: RegimeState::Normal,
-            regime: RegimeState::Normal,
-            contexts: HashMap::new(),
-            mtf_results: HashMap::new(),
         }
     }
 
@@ -159,24 +153,7 @@ impl Watchlist {
         if let Some(data) = self.get_data_mut(symbol_id) {
             data.daily_context = Some(daily_ctx);
             data.mtf_analysis = Some(mtf);
-            regime: self.regime,
-            contexts: self.contexts.clone(),
-            mtf_results: self.mtf_results.clone(),
         }
-    }
-
-    pub fn update_regime(&mut self, regime: RegimeState) {
-        self.regime = regime;
-    }
-
-    pub fn update_symbol_context(
-        &mut self,
-        symbol_id: SymbolId,
-        context: DailyContext,
-        mtf: MtfAnalysis,
-    ) {
-        self.contexts.insert(symbol_id, context);
-        self.mtf_results.insert(symbol_id, mtf);
     }
 
     pub fn get_tier(&self, symbol_id: SymbolId) -> Option<Tier> {

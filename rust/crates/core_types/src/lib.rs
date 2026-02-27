@@ -328,6 +328,32 @@ pub use time_buffer::TimeRingBuffer;
 pub mod config;
 pub use config::*;
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct TapeMetrics {
+    pub price: f64,
+    pub bid: f64,
+    pub ask: f64,
+    pub bid_size: u32,
+    pub ask_size: u32,
+    pub volume: u64,
+
+    // Aggressive metrics for scoring
+    pub rate_ticks_per_sec: f64,
+    pub aggressive_buy_ratio: f64,
+    pub large_print_score: f64,
+    pub absorption_score: f64,
+    pub buy_limit_support_score: f64,
+    pub spread_cents: f64,
+    pub is_reversal: bool,
+
+    // For Anti-Chase (simplified)
+    pub vwap: f64,
+    pub atr_1m: f64,         // Average True Range over 1-minute bars
+    pub vol_1m: f64,          // 1-minute price volatility (std dev)
+    pub avg_depth_top3: f64,  // Average depth at top 3 bid/ask levels
+    pub atr: f64,             // Keep existing field for compatibility
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

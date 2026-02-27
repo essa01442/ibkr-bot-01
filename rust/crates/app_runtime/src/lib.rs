@@ -423,6 +423,9 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
             // Pre-calculate sizing for validation
             let mut calculated_qty = 0;
+            let mut calculated_stop_price = 0.0;
+            let mut calculated_stop_dist = 0.0;
+
             if let core_types::EventKind::Tick(tick) = event.kind {
                 let daily_volume =
                     if let Some(state) = tape_engine.symbol_states.get(&event.symbol_id) {
@@ -435,8 +438,32 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         0
                     };
 
-                let stop_dist = position_sizer.config.min_stop_distance_cents;
+                // §16.1 StopDistance: max(Stop_Guards, Stop_ATR, MinStopDistance)
+                let tick_size = 0.01_f64; // penny stocks
+                let state_atr = tape_engine.symbol_states
+                    .get(&event.symbol_id)
+                    .map(|s| s.tape.atr_1m)
+                    .unwrap_or(0.0);
+                let spread_half = tape_engine.symbol_states
+                    .get(&event.symbol_id)
+                    .map(|s| s.tape.spread_cents / 100.0)
+                    .unwrap_or(0.0);
+                let stop_guards = (2.0 * tick_size).max(0.25 * spread_half * 2.0);
+                let stop_atr = if state_atr > 0.0 {
+                    state_atr * config.pricing.k_atr
+                } else {
+                    0.0
+                };
+                let min_stop = config.pricing.min_stop_abs_usd
+                    .max(config.pricing.min_stop_pct * tick.price)
+                    .max(0.8 * state_atr);
+                let stop_dist = stop_guards.max(stop_atr).max(min_stop)
+                    .max(position_sizer.config.min_stop_distance_cents);
                 let stop_price = tick.price - stop_dist;
+
+                // Cache for order execution
+                calculated_stop_dist = stop_dist;
+                calculated_stop_price = stop_price;
 
                 let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
                 let available_cash = if let Ok(guard) = tape_engine.risk_state.lock() {
@@ -480,9 +507,6 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 let _ = decision_tx.try_send(log);
 
                 if decision_result.is_ok() && calculated_qty > 0 {
-                    let stop_dist = position_sizer.config.min_stop_distance_cents;
-                    let stop_price = tick.price - stop_dist;
-
                     let request = OrderRequest {
                         symbol_id: event.symbol_id,
                         side: Side::Bid,
@@ -492,8 +516,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         stop_price: None,
                         tif: TimeInForce::IOC,
                         idempotency_key: format!("{}-{}", event.symbol_id.0, event.ts_src),
-                        take_profit_price: Some(tick.price + 2.0 * stop_dist),
-                        stop_loss_price: Some(stop_price),
+                        take_profit_price: Some(tick.price + 2.0 * calculated_stop_dist),
+                        stop_loss_price: Some(calculated_stop_price),
                     };
 
                     if let Err(e) = order_tx.try_send(request) {

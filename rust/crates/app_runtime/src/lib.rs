@@ -92,6 +92,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Spawn Metrics Task
     let mut metrics_rx = channels.metrics_rx;
+    let risk_state_metrics = risk_state.clone();
     task::spawn(async move {
         log::info!("Metrics Task started");
         let mut latency_tracker = LatencyTracker::new(1000);
@@ -113,6 +114,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let p95 = latency_tracker.p95();
                     if p95 > SLA_LIMIT_MICROS {
                         log::warn!("SLA BREACH! P95 Latency: {}us > Limit: {}us", p95, SLA_LIMIT_MICROS);
+                    }
+
+                    // 4. SLA Hard Fail Check (§22)
+                    if latency_tracker.check_sla_hard_fail(now_micros()) {
+                        if let Ok(mut guard) = risk_state_metrics.lock() {
+                            guard.set_monitor_only(true);
+                        }
                     }
                 }
             }
@@ -752,20 +760,63 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
             // Emit Decision Log
             if let core_types::EventKind::Tick(tick) = event.kind {
+                let (r_score, a_score, lp_score, spr_score, abs_score, bls_score, tape_score) =
+                    if let Some(state) = tape_engine.symbol_states.get(&event.symbol_id) {
+                        let scores = tape_engine.calculate_scores(&state.tape);
+                        (
+                            scores.r_score,
+                            scores.a_score,
+                            scores.lp_score,
+                            scores.spr_score,
+                            scores.abs_score,
+                            scores.bls_score,
+                            scores.total_score,
+                        )
+                    } else {
+                        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+                    };
+
+                let action = if decision_result.is_ok() {
+                    DecisionAction::Enter
+                } else {
+                    DecisionAction::Reject
+                };
+
+                let reject_reason = decision_result.err();
+
                 let log = DecisionLog {
                     symbol_id: event.symbol_id,
                     timestamp: ts_decision_end,
-                    action: if decision_result.is_ok() {
-                        DecisionAction::Enter
-                    } else {
-                        DecisionAction::Reject
-                    },
-                    reject_reason: decision_result.err(),
+                    action,
+                    reject_reason,
+                    secondary_reasons: [None; 3],
+                    gate_blocklist: true,
+                    gate_corporate: true,
+                    gate_price_range: true,
+                    gate_universe: true,
+                    gate_regime: true,
+                    gate_daily_context: true,
+                    gate_mtf: true,
+                    gate_anti_chase: true,
+                    gate_guards: true,
+                    r_score,
+                    a_score,
+                    lp_score,
+                    spr_score,
+                    abs_score,
+                    bls_score,
+                    tape_score,
+                    tape_score_threshold: tape_engine.config.tape_threshold_normal,
+                    price: tick.price,
+                    expected_net: 0.0, // Would be fetched from tape engine state if available
+                    expected_gross: 0.0,
+                    total_fees: 0.0,
+                    expected_slippage: 0.0,
                     latency_src_rx: event.ts_rx.saturating_sub(event.ts_src),
                     latency_rx_proc: ts_proc_start.saturating_sub(event.ts_rx),
                     latency_proc_decision: ts_decision_end.saturating_sub(ts_proc_start),
-                    price: tick.price,
-                    tape_score: 0.0,
+                    cold_start_state: core_types::ColdStartState::ColdStart,
+                    regime_state: core_types::RegimeState::Normal,
                 };
                 let _ = decision_tx.try_send(log);
 

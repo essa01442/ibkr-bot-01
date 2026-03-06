@@ -125,6 +125,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let _oms_tx = channels.oms_market_tx.clone();
     task::spawn(async move {
         log::info!("OMS Task started");
+        let mut halted_symbols: std::collections::HashMap<core_types::SymbolId, u64> = std::collections::HashMap::new();
         let mut oms = execution_engine::OrderManagementSystem::new();
         let mut timeout_check = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
@@ -158,6 +159,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 log::warn!("Stale orders found during sync: {:?}", stale);
                             }
                         },
+                        EventKind::Halt => {
+                            // §20.3: If open position exists, start 5-minute wait timer.
+                            // The bot will attempt EMERGENCY_EXIT on resume.
+                            // For now: log + set symbol as halted in a local set.
+                            log::warn!("HALT received for symbol {:?} — monitoring for resume", event.symbol_id);
+                            halted_symbols.insert(event.symbol_id, event.ts_src);
+                        }
                         EventKind::Reconnect => {
                             log::warn!("OMS received Reconnect - waiting for StateSync");
                         },
@@ -502,9 +510,15 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         };
         let position_sizer = PositionSizer::new(sizing_config);
 
+        let mut halted_symbols_fast: std::collections::HashMap<core_types::SymbolId, u64> = std::collections::HashMap::new();
+        let mut disabled_symbols_session: std::collections::HashSet<core_types::SymbolId> = std::collections::HashSet::new();
+
         let session_guard = risk_engine::session::SessionGuard::new(config.session.pre_after_enabled);
 
         while let Some(event) = fast_loop_rx.recv().await {
+            if let core_types::EventKind::Halt = event.kind {
+                halted_symbols_fast.insert(event.symbol_id, event.ts_src);
+            }
             let ts_proc_start = now_micros();
 
             // Zero-allocation path
@@ -638,6 +652,52 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
+            // §20.3: Emergency exit on LULD resume (halt > 5 min)
+            if let core_types::EventKind::Tick(ref tick) = event.kind {
+                if let Some(&halt_ts) = halted_symbols_fast.get(&event.symbol_id) {
+                    let halt_duration_secs = (event.ts_src.saturating_sub(halt_ts)) / 1_000_000;
+                    if halt_duration_secs >= 300 { // 5 minutes
+                        // Emergency exit — Marketable Limit
+                        let state_atr = tape_engine.symbol_states
+                            .get(&event.symbol_id)
+                            .map(|s| s.tape.atr_1m)
+                            .unwrap_or(0.01);
+                        let tick_size = 0.01_f64;
+                        let exit_price = (tick.price - 0.25 * state_atr)
+                            .max(tick.price - 2.0 * tick_size)
+                            .max(0.01);
+                        let pos = tape_engine.symbol_states
+                            .get(&event.symbol_id)
+                            .map(|s| s.position)
+                            .unwrap_or(0);
+                        if pos > 0 {
+                            let req = core_types::OrderRequest {
+                                symbol_id: event.symbol_id,
+                                side: core_types::Side::Ask,
+                                qty: pos as u32,
+                                order_type: core_types::OrderType::Limit,
+                                limit_price: Some(exit_price),
+                                stop_price: None,
+                                tif: core_types::TimeInForce::IOC,
+                                idempotency_key: format!("EMERGENCY-EXIT-{}-{}", event.symbol_id.0, event.ts_src),
+                                take_profit_price: None,
+                                stop_loss_price: None,
+                            };
+                            let _ = order_tx.try_send(req);
+                            log::warn!("EMERGENCY EXIT sent for {:?} after {}s halt", event.symbol_id, halt_duration_secs);
+                        }
+                        // Disable symbol for rest of session per §20.3
+                        disabled_symbols_session.insert(event.symbol_id);
+                    }
+                    halted_symbols_fast.remove(&event.symbol_id);
+                }
+            }
+
+            // Skip disabled symbols for the rest of the session
+            if disabled_symbols_session.contains(&event.symbol_id) {
+                continue;
+            }
+
             let decision_result = tape_engine.on_event(&event);
 
             let ts_decision_end = now_micros();
@@ -738,6 +798,12 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     if let EventKind::Fill(_) = event.kind {
                         let _ = fast_tx.try_send(event.clone());
                     }
+                }
+                EventKind::Halt => {
+                    // Route to OMS (manages open positions), Risk (Monitor Only), and Fast (state reset)
+                    let _ = oms_tx.try_send(event.clone());
+                    let _ = risk_tx.try_send(event.clone());
+                    let _ = fast_tx.try_send(event.clone());
                 }
                 EventKind::Heartbeat => {
                     let _ = risk_tx.try_send(event.clone());

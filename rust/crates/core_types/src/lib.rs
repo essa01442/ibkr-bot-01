@@ -251,6 +251,7 @@ pub enum EventKind {
     Heartbeat,
     Reconnect,
     StateSync(StateSyncData),
+    Halt,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

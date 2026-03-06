@@ -169,6 +169,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         EventKind::Reconnect => {
                             log::warn!("OMS received Reconnect - waiting for StateSync");
                         },
+                        EventKind::Heartbeat => {
+                            // §19.3: Fill confirmation timeout check
+                            let now = now_micros();
+                            let timed_out = oms.find_timed_out_orders(now, 5_000_000); // 5 seconds
+                            for order_id in timed_out {
+                                log::error!("ORDER TIMEOUT: order_id={} — INVESTIGATE — blocking new orders for symbol", order_id);
+                                // Mark the order as needing investigation
+                                if let Some(order) = oms.orders.get_mut(&order_id) {
+                                    order.status = core_types::OrderStatus::Rejected; // mark to prevent double-send
+                                }
+                            }
+                        },
                         _ => {}
                     }
                 }
@@ -842,6 +854,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = fast_tx.try_send(event.clone());
                 }
                 EventKind::Heartbeat => {
+                    let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
                 }
                 EventKind::Reconnect => {

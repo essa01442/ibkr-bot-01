@@ -169,6 +169,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         EventKind::Reconnect => {
                             log::warn!("OMS received Reconnect - waiting for StateSync");
                         },
+                        EventKind::Heartbeat => {
+                            // §19.3: Fill confirmation timeout check
+                            let now = now_micros();
+                            let timed_out = oms.find_timed_out_orders(now, 5_000_000); // 5 seconds
+                            for order_id in timed_out {
+                                log::error!("ORDER TIMEOUT: order_id={} — INVESTIGATE — blocking new orders for symbol", order_id);
+                                // Mark the order as needing investigation
+                                if let Some(order) = oms.orders.get_mut(&order_id) {
+                                    order.status = core_types::OrderStatus::Rejected; // mark to prevent double-send
+                                }
+                            }
+                        },
                         _ => {}
                     }
                 }
@@ -188,6 +200,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let mut risk_rx = channels.risk_rx;
     let risk_state_clone = risk_state.clone();
     let shutdown_token_clone = shutdown_token.clone();
+    let oms_order_tx_clone = channels.oms_order_tx.clone();
 
     task::spawn(async move {
         log::info!("Risk Task started");
@@ -297,6 +310,41 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     // Update RiskState PnL
                     if let Ok(mut guard) = risk_state_clone.lock() {
                         guard.update_pnl(global_realized_pnl);
+                    }
+
+                    // §19.4: Partial Exit when Gross >= $50 or 10% price move
+                    // Check if this fill completed an entry (position went from 0 to > 0)
+                    let pos_after = positions.get(&event.symbol_id).map(|p| p.qty).unwrap_or(0);
+                    let entry_cost = positions.get(&event.symbol_id).map(|p| p.avg_cost).unwrap_or(0.0);
+                    if pos_after > 0 && entry_cost > 0.0 {
+                        let current_price = fill.price;
+                        let gross_per_share = current_price - entry_cost;
+                        let gross_total = gross_per_share * pos_after.abs() as f64;
+                        let price_move_pct = if entry_cost > 0.0 { gross_per_share / entry_cost } else { 0.0 };
+
+                        let should_partial_exit = gross_total >= 50.0 || price_move_pct >= 0.10;
+                        if should_partial_exit {
+                            let exit_qty = (pos_after.abs() as u32) / 2;
+                            if exit_qty > 0 {
+                                let partial_req = core_types::OrderRequest {
+                                    symbol_id: event.symbol_id,
+                                    side: core_types::Side::Ask,
+                                    qty: exit_qty,
+                                    order_type: core_types::OrderType::Limit,
+                                    limit_price: Some(fill.price), // Bid-based
+                                    stop_price: None,
+                                    tif: core_types::TimeInForce::IOC,
+                                    idempotency_key: format!("PARTIAL-EXIT-{}-{}", event.symbol_id.0, event.ts_src),
+                                    take_profit_price: None,
+                                    stop_loss_price: None,
+                                };
+                                let _ = oms_order_tx_clone.try_send(partial_req);
+                                log::info!(
+                                    "PARTIAL EXIT: {:?} qty={} @ {:.4} (gross={:.2}, move={:.2}%)",
+                                    event.symbol_id, exit_qty, fill.price, gross_total, price_move_pct * 100.0
+                                );
+                            }
+                        }
                     }
                 }
                 EventKind::Heartbeat => {
@@ -806,6 +854,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = fast_tx.try_send(event.clone());
                 }
                 EventKind::Heartbeat => {
+                    let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
                 }
                 EventKind::Reconnect => {

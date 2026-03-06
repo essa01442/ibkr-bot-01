@@ -502,6 +502,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         };
         let position_sizer = PositionSizer::new(sizing_config);
 
+        let session_guard = risk_engine::session::SessionGuard::new(config.session.pre_after_enabled);
+
         while let Some(event) = fast_loop_rx.recv().await {
             let ts_proc_start = now_micros();
 
@@ -623,6 +625,17 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 tape_engine.last_sizing_shares = calculated_qty;
+            }
+
+            // Session timing check — no entries outside allowed windows (§25)
+            if let core_types::EventKind::Tick(_) = event.kind {
+                if !session_guard.entry_allowed(event.ts_src) {
+                    // Still process state updates but skip order generation
+                    // We allow tape_engine.on_event to run for state tracking
+                    // but must not send orders — set flag
+                    let _ = tape_engine.on_event(&event); // state update only
+                    continue;
+                }
             }
 
             let decision_result = tape_engine.on_event(&event);

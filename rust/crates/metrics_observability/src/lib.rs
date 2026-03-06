@@ -65,6 +65,14 @@ pub struct DecisionLog {
     pub total_fees: f64,
     pub expected_slippage: f64,
 
+
+    // Pricing
+    pub price: f64,
+    pub expected_net: f64,
+    pub expected_gross: f64,
+    pub total_fees: f64,
+    pub expected_slippage: f64,
+
     // Latencies (microseconds)
     pub latency_src_rx: u64,
     pub latency_rx_proc: u64,

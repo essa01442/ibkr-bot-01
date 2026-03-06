@@ -58,6 +58,7 @@ pub struct DecisionLog {
     pub tape_score: f64,
     pub tape_score_threshold: f64,
 
+
     // Pricing
     pub price: f64,
     pub expected_net: f64,
@@ -256,6 +257,75 @@ impl LatencyTracker {
             ((self.sorted_cache.len() as f64 * 0.95) as usize).min(self.sorted_cache.len() - 1);
         self.p95_cache = self.sorted_cache[idx];
         self.p95_cache
+    }
+}
+
+/// Operational metrics per §24.3
+#[derive(Debug, Default, Clone)]
+pub struct MetricsCollector {
+    pub reject_counts: std::collections::HashMap<u8, u64>, // RejectReason as u8 → count
+    pub total_decisions: u64,
+    pub total_entries: u64,
+    pub api_error_count: u64,
+    pub reconnect_count: u64,
+    pub data_quality_events: u64,
+    pub ibkr_subscription_count: u32,
+    pub sla_breach_count: u64,
+}
+
+impl MetricsCollector {
+    pub fn record_decision(&mut self, log: &DecisionLog) {
+        self.total_decisions += 1;
+        if let DecisionAction::Enter = log.action {
+            self.total_entries += 1;
+        }
+        if let Some(reason) = log.reject_reason {
+            *self.reject_counts.entry(reason as u8).or_insert(0) += 1;
+        }
+    }
+
+    /// Returns reject rate for a given reason (0.0–1.0).
+    pub fn reject_rate(&self, reason: RejectReason) -> f64 {
+        if self.total_decisions == 0 { return 0.0; }
+        let count = self.reject_counts.get(&(reason as u8)).copied().unwrap_or(0);
+        count as f64 / self.total_decisions as f64
+    }
+}
+
+/// Alert types per §24.4
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Alert {
+    DataApiDown,
+    HeartbeatMissing { duration_secs: u64 },
+    SlaBreach { p95_micros: u64, duration_secs: u64 },
+    DailyLossLimitReached { loss_usd: i64 },
+    LossLadderActivated { level: u32 },
+    OrderAnomaly { order_id: u64, kind: &'static str },
+    IbkrSubscriptionHigh { current: u32, limit: u32 },
+    MtfRejectRateHigh { rate_pct: u32 },
+}
+
+pub struct AlertManager {
+    /// Callback: in production, replace with actual notification (log/email/etc.)
+    pub alerts: std::collections::VecDeque<Alert>,
+    capacity: usize,
+}
+
+impl AlertManager {
+    pub fn new(capacity: usize) -> Self {
+        Self { alerts: std::collections::VecDeque::with_capacity(capacity), capacity }
+    }
+
+    pub fn raise(&mut self, alert: Alert) {
+        log::error!("ALERT: {:?}", alert);
+        if self.alerts.len() >= self.capacity {
+            self.alerts.pop_front();
+        }
+        self.alerts.push_back(alert);
+    }
+
+    pub fn recent(&self, n: usize) -> impl Iterator<Item = &Alert> {
+        self.alerts.iter().rev().take(n)
     }
 }
 

@@ -58,6 +58,17 @@ pub struct DecisionLog {
     pub tape_score: f64,
     pub tape_score_threshold: f64,
 
+
+    // TapeScore components
+    pub r_score: f64,
+    pub a_score: f64,
+    pub lp_score: f64,
+    pub spr_score: f64,
+    pub abs_score: f64,
+    pub bls_score: f64,
+    pub tape_score: f64,
+    pub tape_score_threshold: f64,
+
     // TapeScore components
     pub r_score: f64,
     pub a_score: f64,
@@ -372,8 +383,16 @@ impl AlertManager {
 }
 
 pub fn log_decision(log: &DecisionLog) {
-    // In prod, structured logging (JSON)
-    if let Ok(json) = serde_json::to_string(log) {
-        log::info!(target: "decision_log", "{}", json);
+    if let DecisionAction::Enter = log.action {
+        log::info!(
+            "ENTER sym={:?} price={:.4} tape={:.1}/{:.1} net={:.4} lat={}µs",
+            log.symbol_id, log.price, log.tape_score, log.tape_score_threshold,
+            log.expected_net, log.latency_proc_decision
+        );
+    } else {
+        log::debug!(
+            "REJECT sym={:?} reason={:?} price={:.4} tape={:.1} net={:.4}",
+            log.symbol_id, log.reject_reason, log.price, log.tape_score, log.expected_net
+        );
     }
 }

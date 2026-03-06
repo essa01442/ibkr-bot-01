@@ -92,6 +92,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Spawn Metrics Task
     let mut metrics_rx = channels.metrics_rx;
+    let risk_state_metrics = risk_state.clone();
     task::spawn(async move {
         log::info!("Metrics Task started");
         let mut latency_tracker = LatencyTracker::new(1000);
@@ -113,6 +114,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let p95 = latency_tracker.p95();
                     if p95 > SLA_LIMIT_MICROS {
                         log::warn!("SLA BREACH! P95 Latency: {}us > Limit: {}us", p95, SLA_LIMIT_MICROS);
+                    }
+
+                    // 4. SLA Hard Fail Check (§22)
+                    if latency_tracker.check_sla_hard_fail(now_micros()) {
+                        if let Ok(mut guard) = risk_state_metrics.lock() {
+                            guard.set_monitor_only(true);
+                        }
                     }
                 }
             }

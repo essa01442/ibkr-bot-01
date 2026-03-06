@@ -58,6 +58,16 @@ pub struct DecisionLog {
     pub tape_score: f64,
     pub tape_score_threshold: f64,
 
+    // TapeScore components
+    pub r_score: f64,
+    pub a_score: f64,
+    pub lp_score: f64,
+    pub spr_score: f64,
+    pub abs_score: f64,
+    pub bls_score: f64,
+    pub tape_score: f64,
+    pub tape_score_threshold: f64,
+
 
     // Pricing
     pub price: f64,
@@ -217,7 +227,11 @@ pub struct LatencyTracker {
     capacity: usize,
     sorted_cache: Vec<u64>,
     p95_cache: u64,
-    calls_since_last_p95: u32,
+    calls_since_last_p95: u64,
+
+    // SLA enforcement (§22)
+    pub consecutive_breach_start: Option<u64>, // timestamp when P95 first exceeded 25ms
+    pub hard_fail_triggered: bool,
 }
 
 impl LatencyTracker {
@@ -228,7 +242,35 @@ impl LatencyTracker {
             sorted_cache: Vec::with_capacity(capacity),
             p95_cache: 0,
             calls_since_last_p95: 100, // Force calc on first call
+            consecutive_breach_start: None,
+            hard_fail_triggered: false,
         }
+    }
+
+    /// Returns true if SLA hard fail has been triggered (P95 > 25ms for > 5 seconds continuously).
+    pub fn check_sla_hard_fail(&mut self, now_micros: u64) -> bool {
+        const SLA_HARD_FAIL_MICROS: u64 = 25_000; // 25ms
+        const SLA_HARD_FAIL_DURATION_MICROS: u64 = 5_000_000; // 5 seconds
+
+        let p95 = self.p95();
+        if p95 > SLA_HARD_FAIL_MICROS {
+            match self.consecutive_breach_start {
+                None => { self.consecutive_breach_start = Some(now_micros); }
+                Some(start) => {
+                    if now_micros.saturating_sub(start) >= SLA_HARD_FAIL_DURATION_MICROS {
+                        if !self.hard_fail_triggered {
+                            log::error!("SLA HARD FAIL: P95={}µs for {}s — entering Monitor Only", p95, SLA_HARD_FAIL_DURATION_MICROS / 1_000_000);
+                            self.hard_fail_triggered = true;
+                        }
+                        return true;
+                    }
+                }
+            }
+        } else {
+            // P95 recovered — reset breach timer but do NOT clear hard_fail until session reset
+            self.consecutive_breach_start = None;
+        }
+        self.hard_fail_triggered
     }
 
     pub fn record(&mut self, latency_us: u64) {

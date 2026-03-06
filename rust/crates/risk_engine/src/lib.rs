@@ -20,6 +20,7 @@ use std::path::Path;
 pub mod exposure;
 pub mod guards;
 pub mod pdt;
+pub mod session;
 pub mod sizing;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

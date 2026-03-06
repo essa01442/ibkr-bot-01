@@ -47,6 +47,7 @@ impl QosPriority {
             EventKind::Heartbeat => QosPriority::Low,
             EventKind::Reconnect => QosPriority::Critical, // Critical control event
             EventKind::StateSync(_) => QosPriority::Critical, // Critical control event
+            EventKind::Halt => QosPriority::Critical, // Critical control event
         }
     }
 }

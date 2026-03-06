@@ -58,6 +58,25 @@ pub struct DecisionLog {
     pub tape_score: f64,
     pub tape_score_threshold: f64,
 
+    // TapeScore components
+    pub r_score: f64,
+    pub a_score: f64,
+    pub lp_score: f64,
+    pub spr_score: f64,
+    pub abs_score: f64,
+    pub bls_score: f64,
+    pub tape_score: f64,
+    pub tape_score_threshold: f64,
+
+
+    // Pricing
+    pub price: f64,
+    pub expected_net: f64,
+    pub expected_gross: f64,
+    pub total_fees: f64,
+    pub expected_slippage: f64,
+
+
     // Pricing
     pub price: f64,
     pub expected_net: f64,

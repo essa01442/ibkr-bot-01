@@ -955,4 +955,52 @@ mod tests {
         // Placeholder: this test validates the concept compiles.
         assert!(true);
     }
+
+    #[test]
+    fn integration_full_decision_chain_happy_path() {
+        // All 12 gates pass → Ok(())
+        let (mut engine, sym) = make_test_engine_ready();
+        let state = engine.symbol_states.get_mut(&sym).unwrap();
+
+        // Set up all conditions for a clean entry
+        state.tape.price = 2.50;
+        state.tape.bid = 2.49;
+        state.tape.ask = 2.51;
+        state.tape.spread_cents = 0.02;
+        state.tape.aggressive_buy_ratio = 1.0;
+        state.tape.rate_ticks_per_sec = 100.0;
+        state.tape.large_print_score = 100.0;
+        state.tape.absorption_score = 100.0;
+        state.tape.atr = 0.05;
+        state.tape.vol_1m = 0.01;
+        state.tape.avg_depth_top3 = 50000.0;
+        engine.last_sizing_shares = 100;
+
+        let event = make_tick_event(sym, 2.50, 0);
+        let result = engine.on_event(&event);
+        assert!(result.is_ok(), "Happy path must pass all gates: {:?}", result);
+    }
+
+    #[test]
+    fn integration_full_decision_chain_each_gate_blocks() {
+        // Test each gate independently
+        let gates: &[(RejectReason, fn(&mut TapeEngine, SymbolId))] = &[
+            (RejectReason::Regime, |e, _| e.update_regime(core_types::RegimeState::RiskOff)),
+            (RejectReason::DailyContext, |e, s| {
+                let st = e.symbol_states.get_mut(&s).unwrap();
+                st.daily_context = Some(core_types::DailyContext {
+                    symbol_id: s, state: core_types::ContextState::NoPlay,
+                    volume_profile: core_types::VolumeProfile { current_volume: 0, avg_20d_volume: 1_000_000, is_surge: false },
+                    has_news: false, sector_momentum: None,
+                });
+            }),
+        ];
+        for (expected_reason, setup_fn) in gates {
+            let (mut engine, sym) = make_test_engine_ready();
+            setup_fn(&mut engine, sym);
+            let event = make_tick_event(sym, 2.50, 0);
+            let result = engine.on_event(&event);
+            assert_eq!(result, Err(*expected_reason), "Gate {:?} must block", expected_reason);
+        }
+    }
 }

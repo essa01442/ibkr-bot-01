@@ -393,41 +393,30 @@ impl TapeEngine {
         }
         let open_symbols = &open_symbols_buf[..open_count.min(2)];
 
-        // Propagate the exact RejectReason (PdtViolation, Blocklist, MaxDailyLoss, etc.)
-        match self.risk_state.lock() {
-            Ok(mut guard) => guard.check_entry(symbol, open_symbols, day_ordinal)?,
-            Err(e) => {
-                log::error!(
-                    "RiskState poisoned in evaluate_entry_logic (check_entry): {}",
-                    e
-                );
-                return Err(RejectReason::Unknown);
-            }
-        }
-
         // 2. Corporate Actions Gate (Covered by check_entry)
-
         // 3. Price Range & 4. Liquidity (RiskState)
+        // Single lock acquisition for both entry and liquidity checks
         let (adv, addv_usd) = match &state.daily_context {
-            Some(ctx) => {
-                let adv = ctx.volume_profile.avg_20d_volume;
-                (adv, adv as f64 * state.tape.price)
-            }
+            Some(ctx) => (
+                ctx.volume_profile.avg_20d_volume,
+                ctx.volume_profile.avg_20d_volume as f64 * state.tape.price,
+            ),
             None => (0, 0.0),
         };
 
+        // Propagate the exact RejectReason (PdtViolation, Blocklist, MaxDailyLoss, etc.)
         match self.risk_state.lock() {
-            Ok(guard) => guard.check_liquidity(
-                state.tape.price,
-                state.tape.spread_cents / state.tape.price, // spread pct
-                adv,
-                addv_usd,
-            )?,
+            Ok(mut guard) => {
+                guard.check_entry(symbol, open_symbols, day_ordinal)?;
+                guard.check_liquidity(
+                    state.tape.price,
+                    state.tape.spread_cents / state.tape.price.max(0.01), // spread pct
+                    adv,
+                    addv_usd,
+                )?;
+            }
             Err(e) => {
-                log::error!(
-                    "RiskState poisoned in evaluate_entry_logic (check_liquidity): {}",
-                    e
-                );
+                log::error!("RiskState poisoned in evaluate_entry_logic: {}", e);
                 return Err(RejectReason::Unknown);
             }
         }

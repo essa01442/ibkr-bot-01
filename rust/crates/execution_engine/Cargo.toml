@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 core_types = { path = "../core_types" }
+event_bus = { path = "../event_bus" }
 arrayvec = "0.7"

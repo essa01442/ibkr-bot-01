@@ -81,6 +81,7 @@ name = "app_runtime"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "arrayvec",
  "bridge_rx",
  "context_engine",
  "core_types",
@@ -104,6 +105,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f3647c145568cec02c42054e07bdf9a5a698e15b466fb2341bfc393cd24aa5"
 dependencies = [
  "rustversion",
+]
+
+[[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -314,6 +324,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 name = "core_types"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "serde",
  "thiserror",
  "toml",
@@ -442,6 +453,7 @@ dependencies = [
 name = "event_bus"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "core_types",
  "tokio",
 ]
@@ -450,8 +462,8 @@ dependencies = [
 name = "execution_engine"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "core_types",
- "event_bus",
 ]
 
 [[package]]

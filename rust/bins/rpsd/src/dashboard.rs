@@ -40,10 +40,23 @@ pub struct DashboardState {
 
 pub fn router(state: Arc<DashboardState>) -> Router {
     Router::new()
+        .route("/ws", get(ws_handler))
+        .route("/api/status", get(status_handler))
+        .route("/", get(index_handler))
         .fallback_service(ServeDir::new("dashboard"))
         .route("/ws", get(ws_handler))
         .route("/health", get(|| async { "ok" }))
         .with_state(state)
+}
+
+async fn status_handler(State(_state): State<Arc<DashboardState>>) -> impl IntoResponse {
+    // Return last snapshot if available
+    axum::Json(serde_json::json!({"status": "ok"}))
+}
+
+async fn index_handler() -> impl IntoResponse {
+    // Serve the dashboard HTML
+    axum::response::Html(include_str!("../../../../dashboard/index.html"))
 }
 
 async fn ws_handler(

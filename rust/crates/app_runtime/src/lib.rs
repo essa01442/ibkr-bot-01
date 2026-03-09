@@ -407,6 +407,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         };
         let mut regime_eng = regime_engine::RegimeEngine::new(regime_params);
 
+        let calendar_risk = risk_engine::calendar::CalendarRisk::new("configs/calendar.toml");
+
         // Per-symbol context and MTF engines
         let mut context_engines: std::collections::HashMap<
             core_types::SymbolId,
@@ -524,6 +526,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 EventKind::Heartbeat => {
+                    // §27: update calendar risk status
+                    let cal_active = calendar_risk.is_active(event.ts_src);
+                    regime_eng.update_calendar_risk(cal_active);
+
                     // Update regime engine from any available SPY metrics
                     // In production, SPY ATR and breadth come from Python bridge via Snapshot
                     let regime = regime_eng.state();
@@ -938,6 +944,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Heartbeat => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
+                    let _ = slow_tx.try_send(event.clone());
                 }
                 EventKind::Reconnect => {
                     log::warn!("Bridge Reconnected - Triggering Sync");

@@ -3,6 +3,9 @@ name = "rpsd"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+paper_mode = ["app_runtime/paper_mode"]
+
 [dependencies]
 app_runtime = { path = "../../crates/app_runtime" }
 core_types = { path = "../../crates/core_types" }

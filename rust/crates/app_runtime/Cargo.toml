@@ -3,6 +3,9 @@ name = "app_runtime"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+paper_mode = []
+
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
 tokio-util = { workspace = true, features = ["rt"] }

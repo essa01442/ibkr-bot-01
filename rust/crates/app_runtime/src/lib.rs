@@ -133,10 +133,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let _oms_tx = channels.oms_market_tx.clone();
     task::spawn(async move {
         log::info!("OMS Task started");
+        let mut calib_logger = metrics_observability::CalibrationLogger::new(20);
         let mut halted_symbols: std::collections::HashMap<core_types::SymbolId, u64> =
             std::collections::HashMap::new();
         let mut oms = execution_engine::OrderManagementSystem::new();
         let mut timeout_check = tokio::time::interval(tokio::time::Duration::from_secs(30));
+
+        // State to track entry prices for slippage calculation
+        struct OmsPosition {
+            avg_cost: f64,
+            qty: i32,
+        }
+        let mut oms_positions: std::collections::HashMap<core_types::SymbolId, OmsPosition> = std::collections::HashMap::new();
 
         loop {
             tokio::select! {
@@ -160,7 +168,81 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Some(event) = oms_rx.recv() => {
                     match event.kind {
-                        EventKind::Fill(fill) => oms.handle_fill(fill, event.ts_rx),
+                        EventKind::Fill(fill) => {
+                            oms.handle_fill(fill.clone(), event.ts_rx);
+
+                            // Calculate trade_pnl/slippage locally for OMS task tracking
+                            let state = oms_positions.entry(event.symbol_id).or_insert(OmsPosition {
+                                avg_cost: 0.0,
+                                qty: 0,
+                            });
+
+                            let fill_size = fill.size as i32;
+                            let signed_fill_size = if fill.side == core_types::Side::Bid {
+                                fill_size
+                            } else {
+                                -fill_size
+                            };
+                            let fill_price = fill.price;
+
+                            if state.qty == 0 {
+                                state.qty = signed_fill_size;
+                                state.avg_cost = fill_price;
+                            } else {
+                                let same_side = (state.qty > 0 && signed_fill_size > 0)
+                                    || (state.qty < 0 && signed_fill_size < 0);
+
+                                if same_side {
+                                    let total_cost = (state.qty as f64 * state.avg_cost)
+                                        + (signed_fill_size as f64 * fill_price);
+                                    state.qty += signed_fill_size;
+                                    state.avg_cost = total_cost / state.qty as f64;
+                                } else {
+                                    let close_qty = std::cmp::min(state.qty.abs(), signed_fill_size.abs());
+                                    let signed_close_qty = if state.qty > 0 { -close_qty } else { close_qty };
+
+                                    // trade_pnl computation (logic from risk task)
+                                    let _trade_pnl = (fill_price - state.avg_cost) * (-signed_close_qty as f64);
+
+                                    // §26.4 Calibration logging
+                                    if fill.side == core_types::Side::Ask {
+                                        let avg_cost = state.avg_cost; // before close
+                                        let actual_slip = if fill.price < avg_cost {
+                                            (avg_cost - fill.price) * (close_qty as f64)
+                                        } else {
+                                            0.0
+                                        };
+                                        // predicted_slippage was stored in the TradeJournal at entry
+                                        // For now, log actual slippage to calibration_logger
+                                        calib_logger.record(
+                                            event.symbol_id.0,
+                                            event.ts_src,
+                                            close_qty.unsigned_abs() as u32,
+                                            avg_cost,
+                                            0.0, // predicted: populated from TradeJournal in full impl
+                                            actual_slip,
+                                        );
+                                        if calib_logger.needs_recalibration() {
+                                            log::warn!(
+                                                "CALIBRATION: avg slippage ratio = {:.2} — update slippage_alpha/beta in default.toml",
+                                                calib_logger.evaluate().unwrap_or(0.0)
+                                            );
+                                        }
+                                    }
+
+                                    let prev_qty = state.qty;
+                                    state.qty += signed_fill_size;
+
+                                    if state.qty == 0 {
+                                        state.avg_cost = 0.0;
+                                    } else if (prev_qty > 0 && state.qty < 0)
+                                        || (prev_qty < 0 && state.qty > 0)
+                                    {
+                                        state.avg_cost = fill_price;
+                                    }
+                                }
+                            }
+                        },
                         EventKind::OrderStatus(status) => oms.handle_status(status, event.ts_rx),
                         EventKind::StateSync(sync) => {
                             let stale = oms.reconcile_state(sync);
@@ -879,6 +961,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         stop_loss_price: Some(calculated_stop_price),
                     };
 
+                    // Paper mode safety: log order but don't execute (for calibration phase)
+                    #[cfg(feature = "paper_mode")]
+                    {
+                        log::info!(
+                            "PAPER ORDER [NOT SENT]: sym={:?} qty={} price={:.4} stop={:.4}",
+                            request.symbol_id, request.qty,
+                            request.limit_price.unwrap_or(0.0),
+                            request.stop_loss_price.unwrap_or(0.0)
+                        );
+                        continue;
+                    }
+                    #[cfg(not(feature = "paper_mode"))]
                     if let Err(e) = order_tx.try_send(request) {
                         match e {
                             mpsc::error::TrySendError::Full(_) => {

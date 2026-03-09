@@ -49,6 +49,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
     info!("Starting Dashboard Server on 0.0.0.0:8080");
 
+    // Spawn the dashboard server and the main application runtime
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(listener, app).await {
+            log::error!("Dashboard Server error: {}", e);
+        }
+    });
+
+    app_runtime::run(config).await?;
     // Run both the dashboard server and the main application runtime
     tokio::select! {
         res = axum::serve(listener, app) => {

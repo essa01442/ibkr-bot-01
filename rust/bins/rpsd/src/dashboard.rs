@@ -10,6 +10,7 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tower_http::services::ServeDir;
 
 /// Snapshot of system state — streamed to UI every 250ms.
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +40,7 @@ pub struct DashboardState {
 
 pub fn router(state: Arc<DashboardState>) -> Router {
     Router::new()
+        .fallback_service(ServeDir::new("dashboard"))
         .route("/ws", get(ws_handler))
         .route("/health", get(|| async { "ok" }))
         .with_state(state)

@@ -83,10 +83,10 @@ impl CalendarRisk {
 
     fn event_time(&self, event_name: &str) -> NaiveTime {
         match event_name {
-            "NFP" | "CPI" | "PPI" | "GDP" => NaiveTime::from_hms_opt(8, 30, 0).unwrap(),
-            "FOMC" | "FOMC Minutes" => NaiveTime::from_hms_opt(14, 0, 0).unwrap(),
-            "OPEC" => NaiveTime::from_hms_opt(9, 0, 0).unwrap(),
-            _ => NaiveTime::from_hms_opt(9, 30, 0).unwrap(),
+            "NFP" | "CPI" | "PPI" | "GDP" => NaiveTime::from_hms_opt(8, 30, 0).unwrap_or_default(),
+            "FOMC" | "FOMC Minutes" => NaiveTime::from_hms_opt(14, 0, 0).unwrap_or_default(),
+            "OPEC" => NaiveTime::from_hms_opt(9, 0, 0).unwrap_or_default(),
+            _ => NaiveTime::from_hms_opt(9, 30, 0).unwrap_or_default(),
         }
     }
 

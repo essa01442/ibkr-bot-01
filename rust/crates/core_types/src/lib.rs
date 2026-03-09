@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -38,7 +39,7 @@ pub struct OrderRequest {
     pub limit_price: Option<f64>,
     pub stop_price: Option<f64>,
     pub tif: TimeInForce,
-    pub idempotency_key: String,
+    pub idempotency_key: arrayvec::ArrayString<64>,
     // Attached Bracket Orders
     pub take_profit_price: Option<f64>,
     pub stop_loss_price: Option<f64>,
@@ -47,7 +48,7 @@ pub struct OrderRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
     pub order_id: u64,           // Internal ID
-    pub client_order_id: String, // Idempotency Key
+    pub client_order_id: arrayvec::ArrayString<64>, // Idempotency Key
     pub broker_order_id: Option<String>,
     pub symbol_id: SymbolId,
     pub side: Side,

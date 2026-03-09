@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! L1 Replay Engine — §26.1
 //! Reads tick-by-tick historical data and replays through the full decision pipeline.
 //! Uses a deterministic clock (timestamps from data, not SystemTime).
@@ -50,9 +51,9 @@ fn main() -> anyhow::Result<()> {
 
     // Load config
     let config_str = std::fs::read_to_string("configs/default.toml")
-        .expect("configs/default.toml must exist");
+        .map_err(|e| anyhow::anyhow!("configs/default.toml must exist: {}", e))?;
     let _config: core_types::AppConfig = toml::from_str(&config_str)
-        .expect("config must parse");
+        .map_err(|e| anyhow::anyhow!("config must parse: {}", e))?;
 
     // Read tick data
     let mut rdr = csv::Reader::from_path(&tick_file)?;

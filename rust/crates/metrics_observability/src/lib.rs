@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Metrics & Observability Crate.
 //!
 //! Handles Decision Logging, Trade Journaling, and Latency Monitoring.

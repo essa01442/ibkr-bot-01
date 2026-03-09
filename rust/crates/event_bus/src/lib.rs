@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Event Bus Crate.
 //!
 //! Manages communication channels between different parts of the system.

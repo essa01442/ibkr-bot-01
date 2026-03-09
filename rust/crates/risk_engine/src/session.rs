@@ -37,12 +37,12 @@ impl SessionGuard {
         let dt_et = dt_utc.with_timezone(&Eastern);
         let t = dt_et.time();
 
-        let t0930 = NaiveTime::from_hms_opt(9, 30, 0).unwrap();
-        let t0945 = NaiveTime::from_hms_opt(9, 45, 0).unwrap();
-        let t1545 = NaiveTime::from_hms_opt(15, 45, 0).unwrap();
-        let t1600 = NaiveTime::from_hms_opt(16, 0, 0).unwrap();
-        let t2000 = NaiveTime::from_hms_opt(20, 0, 0).unwrap();
-        let t0400 = NaiveTime::from_hms_opt(4, 0, 0).unwrap();
+        let t0930 = NaiveTime::from_hms_opt(9, 30, 0).unwrap_or_default();
+        let t0945 = NaiveTime::from_hms_opt(9, 45, 0).unwrap_or_default();
+        let t1545 = NaiveTime::from_hms_opt(15, 45, 0).unwrap_or_default();
+        let t1600 = NaiveTime::from_hms_opt(16, 0, 0).unwrap_or_default();
+        let t2000 = NaiveTime::from_hms_opt(20, 0, 0).unwrap_or_default();
+        let t0400 = NaiveTime::from_hms_opt(4, 0, 0).unwrap_or_default();
 
         if t < t0400 || t >= t2000 {
             SessionState::Closed
@@ -60,6 +60,15 @@ impl SessionGuard {
     }
 
     /// Returns true if a new entry is allowed right now.
+    ///
+    /// # Example
+    /// ```
+    /// use risk_engine::session::SessionGuard;
+    /// let guard = SessionGuard::new(false);
+    /// // Example: 2026-03-10 10:00 ET = 15:00 UTC
+    /// let ts_trading = 1741615200_u64 * 1_000_000;
+    /// assert!(guard.entry_allowed(ts_trading));
+    /// ```
     pub fn entry_allowed(&self, ts_micros: u64) -> bool {
         match self.session_state(ts_micros) {
             SessionState::TradingHours => true,

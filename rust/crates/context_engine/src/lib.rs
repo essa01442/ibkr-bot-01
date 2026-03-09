@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Context Engine Crate.
 //!
 //! Computes the "Daily Context" for a symbol.

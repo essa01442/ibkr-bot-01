@@ -21,6 +21,7 @@ pub mod blocklist;
 pub mod calendar;
 pub mod exposure;
 pub mod guards;
+pub mod blocklist;
 pub mod pdt;
 pub mod session;
 pub mod sizing;

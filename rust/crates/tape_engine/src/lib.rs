@@ -540,6 +540,15 @@ impl TapeEngine {
             + (abs_score * self.config.weights.w_abs)
             + (bls_score * self.config.weights.w_bls);
 
+        let total = total.max(0.0).min(100.0); // clamp
+        // NaN guard — defensive programming for corrupted tape metrics
+        let total = if total.is_nan() || total.is_infinite() {
+            log::warn!("TapeScore NaN/Inf detected — defaulting to 0.0");
+            0.0
+        } else {
+            total
+        };
+
         TapeComponentScores {
             r_score,
             a_score,

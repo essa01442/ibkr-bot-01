@@ -37,12 +37,12 @@ impl SessionGuard {
         let dt_et = dt_utc.with_timezone(&Eastern);
         let t = dt_et.time();
 
-        let t0930 = NaiveTime::from_hms_opt(9, 30, 0).unwrap();
-        let t0945 = NaiveTime::from_hms_opt(9, 45, 0).unwrap();
-        let t1545 = NaiveTime::from_hms_opt(15, 45, 0).unwrap();
-        let t1600 = NaiveTime::from_hms_opt(16, 0, 0).unwrap();
-        let t2000 = NaiveTime::from_hms_opt(20, 0, 0).unwrap();
-        let t0400 = NaiveTime::from_hms_opt(4, 0, 0).unwrap();
+        let t0930 = NaiveTime::from_hms_opt(9, 30, 0).unwrap_or_default();
+        let t0945 = NaiveTime::from_hms_opt(9, 45, 0).unwrap_or_default();
+        let t1545 = NaiveTime::from_hms_opt(15, 45, 0).unwrap_or_default();
+        let t1600 = NaiveTime::from_hms_opt(16, 0, 0).unwrap_or_default();
+        let t2000 = NaiveTime::from_hms_opt(20, 0, 0).unwrap_or_default();
+        let t0400 = NaiveTime::from_hms_opt(4, 0, 0).unwrap_or_default();
 
         if t < t0400 || t >= t2000 {
             SessionState::Closed

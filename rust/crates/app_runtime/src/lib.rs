@@ -43,6 +43,19 @@ fn now_micros() -> u64 {
 }
 
 pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
+    if config.risk.account_capital_usd <= 0.0 {
+        return Err("account_capital_usd must be positive — check default.toml [risk] section".into());
+    }
+    if config.risk.max_daily_loss_usd <= 0.0 {
+        return Err("max_daily_loss_usd must be positive".into());
+    }
+    if config.risk.max_daily_loss_usd > config.risk.account_capital_usd * 0.10 {
+        log::warn!(
+            "max_daily_loss_usd ({}) > 10% of account — consider reducing (§0)",
+            config.risk.max_daily_loss_usd
+        );
+    }
+
     // Ensure runtime directory exists
     if let Some(parent) = Path::new(RISK_STATE_PATH).parent() {
         if !parent.exists() {

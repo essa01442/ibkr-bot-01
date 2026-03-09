@@ -61,6 +61,7 @@ pub struct BridgeRxTask {
     is_degraded: bool,
     read_buf: Vec<u8>,
     degraded_tx: Option<mpsc::Sender<bool>>,
+    socket_path: std::path::PathBuf,
 }
 
 fn now_micros() -> u64 {
@@ -86,6 +87,7 @@ impl BridgeRxTask {
             is_degraded: false,
             read_buf: Vec::with_capacity(BUFFER_CAPACITY),
             degraded_tx: None,
+            socket_path: std::path::PathBuf::from(socket_path),
         })
     }
 
@@ -94,6 +96,13 @@ impl BridgeRxTask {
     }
 
     pub async fn run(&mut self) {
+        // Ensure socket file is removed on clean shutdown
+        let socket_path_cleanup = self.socket_path.clone();
+        let _cleanup = scopeguard::guard(socket_path_cleanup, |path| {
+            let _ = std::fs::remove_file(&path);
+            log::info!("UDS socket cleaned up");
+        });
+
         log::info!("BridgeRxTask started. Waiting for connection...");
         let mut heartbeat_check = tokio::time::interval(Duration::from_millis(500));
 

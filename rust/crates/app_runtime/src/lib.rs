@@ -340,7 +340,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
                         let should_partial_exit = gross_total >= 50.0 || price_move_pct >= 0.10;
                         if should_partial_exit {
-                            let exit_qty = (pos_after.abs() as u32) / 2;
+                            let exit_qty = pos_after.unsigned_abs() / 2;
                             if exit_qty > 0 {
                                 let partial_req = core_types::OrderRequest {
                                     symbol_id: event.symbol_id,
@@ -495,7 +495,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let ring_buffer = price_history.entry(event.symbol_id).or_insert_with(|| {
                         core_types::TimeRingBuffer::new(
                             1000, // capacity
-                            (context_params.churn_window_minutes * 60 * 1_000_000) as u64,
+                            context_params.churn_window_minutes * 60 * 1_000_000,
                         )
                     });
                     ring_buffer.push(event.ts_src, tick.price);

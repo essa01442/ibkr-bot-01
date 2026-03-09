@@ -373,7 +373,7 @@ impl TapeEngine {
 
         // Propagate the exact RejectReason (PdtViolation, Blocklist, MaxDailyLoss, etc.)
         match self.risk_state.lock() {
-            Ok(guard) => guard.check_entry(symbol, open_symbols, day_ordinal)?,
+            Ok(mut guard) => guard.check_entry(symbol, open_symbols, day_ordinal)?,
             Err(e) => {
                 log::error!(
                     "RiskState poisoned in evaluate_entry_logic (check_entry): {}",

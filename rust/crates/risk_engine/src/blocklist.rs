@@ -25,6 +25,10 @@ struct BlocklistFile {
     symbols: Vec<BlocklistEntry>,
 }
 
+#[derive(Debug)]
+pub struct Blocklist {
+    path: PathBuf,
+    entries: HashMap<String, BlocklistEntry>, // ticker → entry
 pub struct Blocklist {
     path: PathBuf,
     entries: HashMap<String, BlocklistEntry>, // ticker → entry

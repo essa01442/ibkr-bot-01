@@ -16,8 +16,14 @@ use risk_engine::{
     sizing::PricingModel,
     RiskState,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
+
+/// Per §13.1: hard cap of 2000 entries per symbol ring buffer.
+/// Allocated once at startup — never grown after initialization.
+pub const RING_BUFFER_CAPACITY: usize = 2000;
+/// Per §13.1: ring buffer window = 30 seconds.
+pub const RING_BUFFER_WINDOW_SECS: u64 = 30;
 
 // --- State for a Single Symbol ---
 #[derive(Debug)]
@@ -29,6 +35,7 @@ pub struct SymbolState {
     pub last_trade_price: f64,
     pub cold_start_state: ColdStartState,
     pub ticks_in_warm_state: u64,
+    pub trade_history: VecDeque<(u64, f64)>,
     // PnL Tracking
     pub position: i32,
     pub avg_cost: f64,
@@ -52,6 +59,7 @@ impl SymbolState {
             last_trade_price: 0.0,
             cold_start_state: ColdStartState::ColdStart,
             ticks_in_warm_state: 0,
+            trade_history: VecDeque::with_capacity(RING_BUFFER_CAPACITY),
             position: 0,
             avg_cost: 0.0,
             realized_pnl: 0.0,
@@ -207,6 +215,20 @@ impl TapeEngine {
         let state = self.symbol_states.entry(symbol).or_default();
         state.tape.price = tick.price;
         state.last_trade_price = tick.price; // Simplified for now
+
+        // Maintain Ring Buffer History
+        let cutoff_ts = ts_src.saturating_sub(RING_BUFFER_WINDOW_SECS * 1_000_000);
+        while let Some(&(old_ts, _)) = state.trade_history.front() {
+            if old_ts < cutoff_ts {
+                state.trade_history.pop_front();
+            } else {
+                break;
+            }
+        }
+        if state.trade_history.len() >= RING_BUFFER_CAPACITY {
+            state.trade_history.pop_front();
+        }
+        state.trade_history.push_back((ts_src, tick.price));
 
         // Update Unrealized PnL
         if state.position != 0 {
@@ -371,41 +393,30 @@ impl TapeEngine {
         }
         let open_symbols = &open_symbols_buf[..open_count.min(2)];
 
-        // Propagate the exact RejectReason (PdtViolation, Blocklist, MaxDailyLoss, etc.)
-        match self.risk_state.lock() {
-            Ok(mut guard) => guard.check_entry(symbol, open_symbols, day_ordinal)?,
-            Err(e) => {
-                log::error!(
-                    "RiskState poisoned in evaluate_entry_logic (check_entry): {}",
-                    e
-                );
-                return Err(RejectReason::Unknown);
-            }
-        }
-
         // 2. Corporate Actions Gate (Covered by check_entry)
-
         // 3. Price Range & 4. Liquidity (RiskState)
+        // Single lock acquisition for both entry and liquidity checks
         let (adv, addv_usd) = match &state.daily_context {
-            Some(ctx) => {
-                let adv = ctx.volume_profile.avg_20d_volume;
-                (adv, adv as f64 * state.tape.price)
-            }
+            Some(ctx) => (
+                ctx.volume_profile.avg_20d_volume,
+                ctx.volume_profile.avg_20d_volume as f64 * state.tape.price,
+            ),
             None => (0, 0.0),
         };
 
+        // Propagate the exact RejectReason (PdtViolation, Blocklist, MaxDailyLoss, etc.)
         match self.risk_state.lock() {
-            Ok(guard) => guard.check_liquidity(
-                state.tape.price,
-                state.tape.spread_cents / state.tape.price, // spread pct
-                adv,
-                addv_usd,
-            )?,
+            Ok(mut guard) => {
+                guard.check_entry(symbol, open_symbols, day_ordinal)?;
+                guard.check_liquidity(
+                    state.tape.price,
+                    state.tape.spread_cents / state.tape.price.max(0.01), // spread pct
+                    adv,
+                    addv_usd,
+                )?;
+            }
             Err(e) => {
-                log::error!(
-                    "RiskState poisoned in evaluate_entry_logic (check_liquidity): {}",
-                    e
-                );
+                log::error!("RiskState poisoned in evaluate_entry_logic: {}", e);
                 return Err(RejectReason::Unknown);
             }
         }
@@ -528,6 +539,15 @@ impl TapeEngine {
             + (spr_score * self.config.weights.w_spr)
             + (abs_score * self.config.weights.w_abs)
             + (bls_score * self.config.weights.w_bls);
+
+        let total = total.max(0.0).min(100.0); // clamp
+        // NaN guard — defensive programming for corrupted tape metrics
+        let total = if total.is_nan() || total.is_infinite() {
+            log::warn!("TapeScore NaN/Inf detected — defaulting to 0.0");
+            0.0
+        } else {
+            total
+        };
 
         TapeComponentScores {
             r_score,

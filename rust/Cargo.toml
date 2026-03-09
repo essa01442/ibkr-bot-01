@@ -2,6 +2,7 @@
 resolver = "2"
 
 members = [
+    "bins/replayer",
     "bins/rpsd",
     "crates/app_runtime",
     "crates/bridge_rx",

@@ -10,7 +10,7 @@ pub struct OrderManagementSystem {
     // Maps internal order_id to Order
     pub orders: HashMap<u64, Order>,
     // Maps idempotency_key (client_order_id) to internal order_id
-    pub idempotency_cache: HashMap<String, u64>,
+    pub idempotency_cache: HashMap<arrayvec::ArrayString<64>, u64>,
     // Maps broker_order_id to internal order_id
     pub broker_map: HashMap<String, u64>,
 
@@ -243,7 +243,7 @@ mod tests {
             limit_price: Some(10.0),
             stop_price: None,
             tif: TimeInForce::GTC,
-            idempotency_key: "key1".to_string(),
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
             take_profit_price: None,
             stop_loss_price: None,
         };
@@ -267,7 +267,7 @@ mod tests {
             limit_price: Some(10.0),
             stop_price: None,
             tif: TimeInForce::GTC,
-            idempotency_key: "key1".to_string(),
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
             take_profit_price: None,
             stop_loss_price: None,
         };
@@ -312,7 +312,7 @@ mod tests {
             limit_price: Some(10.0),
             stop_price: None,
             tif: TimeInForce::GTC,
-            idempotency_key: "key1".to_string(),
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
             take_profit_price: None,
             stop_loss_price: None,
         };

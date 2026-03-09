@@ -22,6 +22,19 @@ use watchlist_engine::WatchlistSnapshot;
 
 const RISK_STATE_PATH: &str = "/var/run/rps/risk_state.json";
 
+/// Stack-allocated idempotency key — zero heap allocation per §5.3.
+/// Format: "SYM_ID-TS_MICROS" as ASCII bytes, optionally with a prefix.
+fn idempotency_key_stack(prefix: &str, symbol_id: u32, ts: u64) -> arrayvec::ArrayString<64> {
+    let mut s = arrayvec::ArrayString::<64>::new();
+    use std::fmt::Write;
+    if prefix.is_empty() {
+        let _ = write!(s, "{}-{}", symbol_id, ts);
+    } else {
+        let _ = write!(s, "{}-{}-{}", prefix, symbol_id, ts);
+    }
+    s
+}
+
 fn now_micros() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -432,9 +445,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     limit_price: Some(fill.price), // Bid-based
                                     stop_price: None,
                                     tif: core_types::TimeInForce::IOC,
-                                    idempotency_key: format!(
-                                        "PARTIAL-EXIT-{}-{}",
-                                        event.symbol_id.0, event.ts_src
+                                    idempotency_key: idempotency_key_stack(
+                                        "PARTIAL-EXIT",
+                                        event.symbol_id.0,
+                                        event.ts_src,
                                     ),
                                     take_profit_price: None,
                                     stop_loss_price: None,
@@ -719,7 +733,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             limit_price: None,
                             stop_price: None,
                             tif: TimeInForce::IOC,
-                            idempotency_key: format!("CLOSE-ALL-{}-{}", symbol_id.0, event.ts_src),
+                            idempotency_key: idempotency_key_stack("CLOSE-ALL", symbol_id.0, event.ts_src),
                             take_profit_price: None,
                             stop_loss_price: None,
                         };
@@ -855,9 +869,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 limit_price: Some(exit_price),
                                 stop_price: None,
                                 tif: core_types::TimeInForce::IOC,
-                                idempotency_key: format!(
-                                    "EMERGENCY-EXIT-{}-{}",
-                                    event.symbol_id.0, event.ts_src
+                                idempotency_key: idempotency_key_stack(
+                                    "EMERGENCY-EXIT",
+                                    event.symbol_id.0,
+                                    event.ts_src,
                                 ),
                                 take_profit_price: None,
                                 stop_loss_price: None,
@@ -956,7 +971,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         limit_price: Some(tick.price),
                         stop_price: None,
                         tif: TimeInForce::IOC,
-                        idempotency_key: format!("{}-{}", event.symbol_id.0, event.ts_src),
+                        idempotency_key: idempotency_key_stack("", event.symbol_id.0, event.ts_src),
                         take_profit_price: Some(tick.price + 2.0 * calculated_stop_dist),
                         stop_loss_price: Some(calculated_stop_price),
                     };

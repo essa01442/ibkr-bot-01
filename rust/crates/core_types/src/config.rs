@@ -106,9 +106,9 @@ pub struct CorrelationConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toml;
     use std::fs;
     use std::path::PathBuf;
+    use toml;
 
     #[test]
     fn test_config_parse() {

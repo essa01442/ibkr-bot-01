@@ -1,0 +1,22 @@
+[package]
+name = "replayer"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "replayer"
+path = "src/main.rs"
+
+[dependencies]
+core_types = { path = "../../crates/core_types" }
+tape_engine = { path = "../../crates/tape_engine" }
+risk_engine = { path = "../../crates/risk_engine" }
+metrics_observability = { path = "../../crates/metrics_observability" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+csv = "1"
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1.0"
+toml = "0.8"

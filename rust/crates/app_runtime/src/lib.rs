@@ -999,24 +999,28 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Keep main alive until shutdown triggered
-    tokio::select! {
-        _ = shutdown_token.cancelled() => {
-            log::warn!("Shutdown triggered by Risk Task!");
-        }
-        _ = tokio::signal::ctrl_c() => {
-            log::info!("Shutdown triggered by Ctrl+C");
-        }
-        Some(is_degraded) = degraded_rx.recv() => {
-            if let Ok(mut guard) = risk_state.lock() {
-                if is_degraded {
-                    guard.set_monitor_only(true);
-                    smo_clone.store(true, Ordering::SeqCst);
-                    log::warn!("DataQuality DEGRADED — entering Monitor Only automatically.");
-                } else if smo_clone.load(Ordering::SeqCst) {
-                    // Only auto-restore if WE set it
-                    guard.set_monitor_only(false);
-                    smo_clone.store(false, Ordering::SeqCst);
-                    log::info!("DataQuality RESTORED — exiting Monitor Only.");
+    loop {
+        tokio::select! {
+            _ = shutdown_token.cancelled() => {
+                log::warn!("Shutdown triggered by Risk Task!");
+                break;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                log::info!("Shutdown triggered by Ctrl+C");
+                break;
+            }
+            Some(is_degraded) = degraded_rx.recv() => {
+                if let Ok(mut guard) = risk_state.lock() {
+                    if is_degraded {
+                        guard.set_monitor_only(true);
+                        smo_clone.store(true, Ordering::SeqCst);
+                        log::warn!("DataQuality DEGRADED — entering Monitor Only automatically.");
+                    } else if smo_clone.load(Ordering::SeqCst) {
+                        // Only auto-restore if WE set it
+                        guard.set_monitor_only(false);
+                        smo_clone.store(false, Ordering::SeqCst);
+                        log::info!("DataQuality RESTORED — exiting Monitor Only.");
+                    }
                 }
             }
         }

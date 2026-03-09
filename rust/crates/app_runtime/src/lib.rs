@@ -22,6 +22,19 @@ use watchlist_engine::WatchlistSnapshot;
 
 const RISK_STATE_PATH: &str = "/var/run/rps/risk_state.json";
 
+/// Stack-allocated idempotency key — zero heap allocation per §5.3.
+/// Format: "SYM_ID-TS_MICROS" as ASCII bytes, optionally with a prefix.
+fn idempotency_key_stack(prefix: &str, symbol_id: u32, ts: u64) -> arrayvec::ArrayString<64> {
+    let mut s = arrayvec::ArrayString::<64>::new();
+    use std::fmt::Write;
+    if prefix.is_empty() {
+        let _ = write!(s, "{}-{}", symbol_id, ts);
+    } else {
+        let _ = write!(s, "{}-{}-{}", prefix, symbol_id, ts);
+    }
+    s
+}
+
 fn now_micros() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -30,6 +43,19 @@ fn now_micros() -> u64 {
 }
 
 pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
+    if config.risk.account_capital_usd <= 0.0 {
+        return Err("account_capital_usd must be positive — check default.toml [risk] section".into());
+    }
+    if config.risk.max_daily_loss_usd <= 0.0 {
+        return Err("max_daily_loss_usd must be positive".into());
+    }
+    if config.risk.max_daily_loss_usd > config.risk.account_capital_usd * 0.10 {
+        log::warn!(
+            "max_daily_loss_usd ({}) > 10% of account — consider reducing (§0)",
+            config.risk.max_daily_loss_usd
+        );
+    }
+
     // Ensure runtime directory exists
     if let Some(parent) = Path::new(RISK_STATE_PATH).parent() {
         if !parent.exists() {
@@ -131,6 +157,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let mut oms_rx = channels.oms_market_rx;
     let mut oms_order_rx = channels.oms_order_rx;
     let _oms_tx = channels.oms_market_tx.clone();
+    let shutdown_token_oms = shutdown_token.clone();
     task::spawn(async move {
         log::info!("OMS Task started");
         let mut calib_logger = metrics_observability::CalibrationLogger::new(20);
@@ -148,6 +175,17 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             tokio::select! {
+                _ = shutdown_token_oms.cancelled() => {
+                    log::info!("OmsTask: cancelling {} live orders on shutdown", oms.orders.len());
+                    let live_orders: Vec<_> = oms.orders.values()
+                        .filter(|o| o.status == core_types::OrderStatus::Live || o.status == core_types::OrderStatus::Pending)
+                        .map(|o| o.order_id)
+                        .collect();
+                    for id in live_orders {
+                        log::warn!("Shutdown cancel: order_id={}", id);
+                    }
+                    break;
+                }
                 _ = timeout_check.tick() => {
                     let now = now_micros();
                     let timeouts = oms.check_timeouts(now, 30_000_000); // 30s timeout
@@ -432,9 +470,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     limit_price: Some(fill.price), // Bid-based
                                     stop_price: None,
                                     tif: core_types::TimeInForce::IOC,
-                                    idempotency_key: format!(
-                                        "PARTIAL-EXIT-{}-{}",
-                                        event.symbol_id.0, event.ts_src
+                                    idempotency_key: idempotency_key_stack(
+                                        "PARTIAL-EXIT",
+                                        event.symbol_id.0,
+                                        event.ts_src,
                                     ),
                                     take_profit_price: None,
                                     stop_loss_price: None,
@@ -482,6 +521,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let mut slow_loop_rx = channels.slow_loop_rx;
     let slow_snapshot_writer = watchlist_snapshot.clone();
     let risk_state_slow = risk_state.clone();
+    let shutdown_token_slow = shutdown_token.clone();
     task::spawn(async move {
         log::info!("SlowLoop Task started");
         let mut watchlist = watchlist_engine::Watchlist::new();
@@ -526,7 +566,17 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         let sub_limit = config.ibkr.subscription_budget;
         let sub_warn_threshold = (sub_limit as f64 * config.ibkr.subscription_warn_pct) as u32;
 
-        while let Some(event) = slow_loop_rx.recv().await {
+        loop {
+            tokio::select! {
+                _ = shutdown_token_slow.cancelled() => {
+                    log::info!("SlowLoop shutting down");
+                    break;
+                }
+                event_opt = slow_loop_rx.recv() => {
+                    let event = match event_opt {
+                        Some(e) => e,
+                        None => break,
+                    };
             match event.kind {
                 EventKind::Tick(tick) => {
                     // Subscription count tracking
@@ -635,6 +685,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 _ => {}
             }
             slow_snapshot_writer.store(Arc::new(watchlist.snapshot()));
+            }
+            }
         }
     });
 
@@ -643,6 +695,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let fast_snapshot_reader = watchlist_snapshot.clone();
     let risk_state_fast = risk_state.clone();
     let order_tx = channels.oms_order_tx;
+    let shutdown_token_fast = shutdown_token.clone();
 
     task::spawn(async move {
         log::info!("FastLoop Task started");
@@ -682,7 +735,17 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         let session_guard =
             risk_engine::session::SessionGuard::new(config.session.pre_after_enabled);
 
-        while let Some(event) = fast_loop_rx.recv().await {
+        loop {
+            tokio::select! {
+                _ = shutdown_token_fast.cancelled() => {
+                    log::info!("FastLoop shutting down");
+                    break;
+                }
+                event_opt = fast_loop_rx.recv() => {
+                    let event = match event_opt {
+                        Some(e) => e,
+                        None => break,
+                    };
             if let core_types::EventKind::Halt = event.kind {
                 halted_symbols_fast.insert(event.symbol_id, event.ts_src);
             }
@@ -719,7 +782,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             limit_price: None,
                             stop_price: None,
                             tif: TimeInForce::IOC,
-                            idempotency_key: format!("CLOSE-ALL-{}-{}", symbol_id.0, event.ts_src),
+                            idempotency_key: idempotency_key_stack("CLOSE-ALL", symbol_id.0, event.ts_src),
                             take_profit_price: None,
                             stop_loss_price: None,
                         };
@@ -855,9 +918,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 limit_price: Some(exit_price),
                                 stop_price: None,
                                 tif: core_types::TimeInForce::IOC,
-                                idempotency_key: format!(
-                                    "EMERGENCY-EXIT-{}-{}",
-                                    event.symbol_id.0, event.ts_src
+                                idempotency_key: idempotency_key_stack(
+                                    "EMERGENCY-EXIT",
+                                    event.symbol_id.0,
+                                    event.ts_src,
                                 ),
                                 take_profit_price: None,
                                 stop_loss_price: None,
@@ -956,7 +1020,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         limit_price: Some(tick.price),
                         stop_price: None,
                         tif: TimeInForce::IOC,
-                        idempotency_key: format!("{}-{}", event.symbol_id.0, event.ts_src),
+                        idempotency_key: idempotency_key_stack("", event.symbol_id.0, event.ts_src),
                         take_profit_price: Some(tick.price + 2.0 * calculated_stop_dist),
                         stop_loss_price: Some(calculated_stop_price),
                     };
@@ -1003,6 +1067,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         log::error!("Failed to persist risk state: {}", e);
                     }
                 }
+            }
+            }
             }
         }
     });

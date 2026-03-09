@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 tokio = { workspace = true, features = ["sync"] }
 core_types = { path = "../core_types" }
+arrayvec = "0.7"

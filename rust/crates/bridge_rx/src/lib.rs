@@ -61,6 +61,7 @@ pub struct BridgeRxTask {
     is_degraded: bool,
     read_buf: Vec<u8>,
     degraded_tx: Option<mpsc::Sender<bool>>,
+    socket_path: std::path::PathBuf,
 }
 
 fn now_micros() -> u64 {
@@ -86,6 +87,7 @@ impl BridgeRxTask {
             is_degraded: false,
             read_buf: Vec::with_capacity(BUFFER_CAPACITY),
             degraded_tx: None,
+            socket_path: std::path::PathBuf::from(socket_path),
         })
     }
 
@@ -94,6 +96,13 @@ impl BridgeRxTask {
     }
 
     pub async fn run(&mut self) {
+        // Ensure socket file is removed on clean shutdown
+        let socket_path_cleanup = self.socket_path.clone();
+        let _cleanup = scopeguard::guard(socket_path_cleanup, |path| {
+            let _ = std::fs::remove_file(&path);
+            log::info!("UDS socket cleaned up");
+        });
+
         log::info!("BridgeRxTask started. Waiting for connection...");
         let mut heartbeat_check = tokio::time::interval(Duration::from_millis(500));
 
@@ -232,8 +241,26 @@ impl BridgeRxTask {
         Ok(())
     }
 
+    fn validate_tick(&self, tick: &core_types::TickData) -> bool {
+        tick.price > 0.0
+            && tick.price <= 1000.0         // Sanity cap (far above our $25 limit)
+            && tick.size > 0
+    }
+
     fn validate_event(&self, event: &Event) -> bool {
+        // Reject unknown symbol_id = 0 (reserved/invalid)
+        if event.symbol_id.0 == 0 {
+            log::warn!("invalid symbol_id: 0 is reserved");
+            return false;
+        }
+
         let now_us = now_micros();
+
+        // §6.2: reject events older than 5 seconds
+        if now_us > event.ts_src && now_us - event.ts_src > 5_000_000 {
+            log::warn!("event too old (ts_src > 5s stale)");
+            return false;
+        }
 
         if event.ts_src == 0 || event.ts_src > now_us + 5_000_000 {
             return false;
@@ -241,7 +268,7 @@ impl BridgeRxTask {
 
         match event.kind {
             EventKind::Tick(tick) => {
-                if tick.price <= 0.0 || tick.price >= 100_000.0 || tick.size == 0 {
+                if !self.validate_tick(&tick) {
                     return false;
                 }
             }

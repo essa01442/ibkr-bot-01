@@ -317,11 +317,10 @@ pub struct OrderStatusData {
     pub avg_fill_price: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[repr(C)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RejectData {
     pub order_id: u64,
-    pub reason: RejectReason,
+    pub reason: String,
     pub code: u16, // Optional error code from exchange
 }
 
@@ -353,9 +352,9 @@ pub struct TapeMetrics {
     // For Anti-Chase (simplified)
     pub vwap: f64,
     pub atr_1m: f64,         // Average True Range over 1-minute bars
-    pub vol_1m: f64,          // 1-minute price volatility (std dev)
-    pub avg_depth_top3: f64,  // Average depth at top 3 bid/ask levels
-    pub atr: f64,             // Keep existing field for compatibility
+    pub vol_1m: f64,         // 1-minute price volatility (std dev)
+    pub avg_depth_top3: f64, // Average depth at top 3 bid/ask levels
+    pub atr: f64,            // Keep existing field for compatibility
 }
 
 #[cfg(test)]

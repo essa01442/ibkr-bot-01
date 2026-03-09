@@ -133,7 +133,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let _oms_tx = channels.oms_market_tx.clone();
     task::spawn(async move {
         log::info!("OMS Task started");
-        let mut halted_symbols: std::collections::HashMap<core_types::SymbolId, u64> = std::collections::HashMap::new();
+        let mut halted_symbols: std::collections::HashMap<core_types::SymbolId, u64> =
+            std::collections::HashMap::new();
         let mut oms = execution_engine::OrderManagementSystem::new();
         let mut timeout_check = tokio::time::interval(tokio::time::Duration::from_secs(30));
 
@@ -323,12 +324,19 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     // §19.4: Partial Exit when Gross >= $50 or 10% price move
                     // Check if this fill completed an entry (position went from 0 to > 0)
                     let pos_after = positions.get(&event.symbol_id).map(|p| p.qty).unwrap_or(0);
-                    let entry_cost = positions.get(&event.symbol_id).map(|p| p.avg_cost).unwrap_or(0.0);
+                    let entry_cost = positions
+                        .get(&event.symbol_id)
+                        .map(|p| p.avg_cost)
+                        .unwrap_or(0.0);
                     if pos_after > 0 && entry_cost > 0.0 {
                         let current_price = fill.price;
                         let gross_per_share = current_price - entry_cost;
                         let gross_total = gross_per_share * pos_after.abs() as f64;
-                        let price_move_pct = if entry_cost > 0.0 { gross_per_share / entry_cost } else { 0.0 };
+                        let price_move_pct = if entry_cost > 0.0 {
+                            gross_per_share / entry_cost
+                        } else {
+                            0.0
+                        };
 
                         let should_partial_exit = gross_total >= 50.0 || price_move_pct >= 0.10;
                         if should_partial_exit {
@@ -342,14 +350,21 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     limit_price: Some(fill.price), // Bid-based
                                     stop_price: None,
                                     tif: core_types::TimeInForce::IOC,
-                                    idempotency_key: format!("PARTIAL-EXIT-{}-{}", event.symbol_id.0, event.ts_src),
+                                    idempotency_key: format!(
+                                        "PARTIAL-EXIT-{}-{}",
+                                        event.symbol_id.0, event.ts_src
+                                    ),
                                     take_profit_price: None,
                                     stop_loss_price: None,
                                 };
                                 let _ = oms_order_tx_clone.try_send(partial_req);
                                 log::info!(
                                     "PARTIAL EXIT: {:?} qty={} @ {:.4} (gross={:.2}, move={:.2}%)",
-                                    event.symbol_id, exit_qty, fill.price, gross_total, price_move_pct * 100.0
+                                    event.symbol_id,
+                                    exit_qty,
+                                    fill.price,
+                                    gross_total,
+                                    price_move_pct * 100.0
                                 );
                             }
                         }
@@ -366,6 +381,14 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::StateSync(sync) => {
                     if let Ok(mut guard) = risk_state_clone.lock() {
                         guard.rebuild_state(sync.positions);
+                    }
+                }
+                EventKind::Reject(reject) => {
+                    // Auto-block logic
+                    if reject.reason.contains("DELISTING") || reject.reason.contains("COMPLIANCE") {
+                        if let Ok(mut guard) = risk_state_clone.lock() {
+                            guard.block_symbol(event.symbol_id);
+                        }
                     }
                 }
                 _ => {}
@@ -391,6 +414,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             widening_riskoff_pct: config.regime.widening_riskoff_pct,
         };
         let mut regime_eng = regime_engine::RegimeEngine::new(regime_params);
+
+        let calendar_risk = risk_engine::calendar::CalendarRisk::new("configs/calendar.toml");
 
         // Per-symbol context and MTF engines
         let mut context_engines: std::collections::HashMap<
@@ -462,14 +487,9 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // Update per-symbol context engine
-                    let ctx_eng = context_engines
-                        .entry(event.symbol_id)
-                        .or_insert_with(|| {
-                            context_engine::ContextEngine::new(
-                                event.symbol_id,
-                                context_params.clone(),
-                            )
-                        });
+                    let ctx_eng = context_engines.entry(event.symbol_id).or_insert_with(|| {
+                        context_engine::ContextEngine::new(event.symbol_id, context_params.clone())
+                    });
 
                     // Update price window for churn detection
                     let ring_buffer = price_history.entry(event.symbol_id).or_insert_with(|| {
@@ -486,14 +506,12 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let daily_ctx = ctx_eng.compute_context();
 
                     // Update MTF engine price
-                    let mtf_eng = mtf_engines
-                        .entry(event.symbol_id)
-                        .or_insert_with(|| {
-                            mtf_engine::MtfEngine::new(
-                                event.symbol_id,
-                                mtf_engine::MtfParams::default(),
-                            )
-                        });
+                    let mtf_eng = mtf_engines.entry(event.symbol_id).or_insert_with(|| {
+                        mtf_engine::MtfEngine::new(
+                            event.symbol_id,
+                            mtf_engine::MtfParams::default(),
+                        )
+                    });
                     mtf_eng.update_price(tick.price);
                     let mtf_result = mtf_eng.evaluate();
 
@@ -509,13 +527,17 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             snap.volume,
                             snap.avg_volume_20d,
                             snap.volume
-                                > (snap.avg_volume_20d as f64
-                                    * context_params.volume_multiplier_3x) as u64,
+                                > (snap.avg_volume_20d as f64 * context_params.volume_multiplier_3x)
+                                    as u64,
                         );
                         ctx_eng.update_news(snap.has_news_today);
                     }
                 }
                 EventKind::Heartbeat => {
+                    // §27: update calendar risk status
+                    let cal_active = calendar_risk.is_active(event.ts_src);
+                    regime_eng.update_calendar_risk(cal_active);
+
                     // Update regime engine from any available SPY metrics
                     // In production, SPY ATR and breadth come from Python bridge via Snapshot
                     let regime = regime_eng.state();
@@ -554,8 +576,12 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             min_net_profit_usd: config.pricing.min_net_profit_usd,
         };
 
-        let mut tape_engine =
-            tape_engine::TapeEngine::new(risk_state_fast, guard_config, config.tape.clone(), pricing_model);
+        let mut tape_engine = tape_engine::TapeEngine::new(
+            risk_state_fast,
+            guard_config,
+            config.tape.clone(),
+            pricing_model,
+        );
 
         let sizing_config = SizingConfig {
             risk_per_trade_usd: config.risk.risk_per_trade_usd,
@@ -566,10 +592,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         };
         let position_sizer = PositionSizer::new(sizing_config);
 
-        let mut halted_symbols_fast: std::collections::HashMap<core_types::SymbolId, u64> = std::collections::HashMap::new();
-        let mut disabled_symbols_session: std::collections::HashSet<core_types::SymbolId> = std::collections::HashSet::new();
+        let mut halted_symbols_fast: std::collections::HashMap<core_types::SymbolId, u64> =
+            std::collections::HashMap::new();
+        let mut disabled_symbols_session: std::collections::HashSet<core_types::SymbolId> =
+            std::collections::HashSet::new();
 
-        let session_guard = risk_engine::session::SessionGuard::new(config.session.pre_after_enabled);
+        let session_guard =
+            risk_engine::session::SessionGuard::new(config.session.pre_after_enabled);
 
         while let Some(event) = fast_loop_rx.recv().await {
             if let core_types::EventKind::Halt = event.kind {
@@ -644,11 +673,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
                 // §16.1 StopDistance: max(Stop_Guards, Stop_ATR, MinStopDistance)
                 let tick_size = 0.01_f64; // penny stocks
-                let state_atr = tape_engine.symbol_states
+                let state_atr = tape_engine
+                    .symbol_states
                     .get(&event.symbol_id)
                     .map(|s| s.tape.atr_1m)
                     .unwrap_or(0.0);
-                let spread_half = tape_engine.symbol_states
+                let spread_half = tape_engine
+                    .symbol_states
                     .get(&event.symbol_id)
                     .map(|s| s.tape.spread_cents / 100.0)
                     .unwrap_or(0.0);
@@ -658,10 +689,14 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     0.0
                 };
-                let min_stop = config.pricing.min_stop_abs_usd
+                let min_stop = config
+                    .pricing
+                    .min_stop_abs_usd
                     .max(config.pricing.min_stop_pct * tick.price)
                     .max(0.8 * state_atr);
-                let stop_dist = stop_guards.max(stop_atr).max(min_stop)
+                let stop_dist = stop_guards
+                    .max(stop_atr)
+                    .max(min_stop)
                     .max(position_sizer.config.min_stop_distance_cents);
                 let stop_price = tick.price - stop_dist;
 
@@ -712,9 +747,11 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             if let core_types::EventKind::Tick(ref tick) = event.kind {
                 if let Some(&halt_ts) = halted_symbols_fast.get(&event.symbol_id) {
                     let halt_duration_secs = (event.ts_src.saturating_sub(halt_ts)) / 1_000_000;
-                    if halt_duration_secs >= 300 { // 5 minutes
+                    if halt_duration_secs >= 300 {
+                        // 5 minutes
                         // Emergency exit — Marketable Limit
-                        let state_atr = tape_engine.symbol_states
+                        let state_atr = tape_engine
+                            .symbol_states
                             .get(&event.symbol_id)
                             .map(|s| s.tape.atr_1m)
                             .unwrap_or(0.01);
@@ -722,7 +759,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         let exit_price = (tick.price - 0.25 * state_atr)
                             .max(tick.price - 2.0 * tick_size)
                             .max(0.01);
-                        let pos = tape_engine.symbol_states
+                        let pos = tape_engine
+                            .symbol_states
                             .get(&event.symbol_id)
                             .map(|s| s.position)
                             .unwrap_or(0);
@@ -735,12 +773,19 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 limit_price: Some(exit_price),
                                 stop_price: None,
                                 tif: core_types::TimeInForce::IOC,
-                                idempotency_key: format!("EMERGENCY-EXIT-{}-{}", event.symbol_id.0, event.ts_src),
+                                idempotency_key: format!(
+                                    "EMERGENCY-EXIT-{}-{}",
+                                    event.symbol_id.0, event.ts_src
+                                ),
                                 take_profit_price: None,
                                 stop_loss_price: None,
                             };
                             let _ = order_tx.try_send(req);
-                            log::warn!("EMERGENCY EXIT sent for {:?} after {}s halt", event.symbol_id, halt_duration_secs);
+                            log::warn!(
+                                "EMERGENCY EXIT sent for {:?} after {}s halt",
+                                event.symbol_id,
+                                halt_duration_secs
+                            );
                         }
                         // Disable symbol for rest of session per §20.3
                         disabled_symbols_session.insert(event.symbol_id);
@@ -891,12 +936,24 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Snapshot(_) => {
                     let _ = slow_tx.try_send(event.clone());
                 }
-                EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::Reject(_) => {
+                EventKind::Fill(_) | EventKind::OrderStatus(_) => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
                     if let EventKind::Fill(_) = event.kind {
                         let _ = fast_tx.try_send(event.clone());
                     }
+                }
+                EventKind::Reject(ref reject) => {
+                    // Check for IBKR delisting/compliance signals → auto-block
+                    if reject.reason.contains("DELISTING") || reject.reason.contains("COMPLIANCE") {
+                        log::warn!(
+                            "AUTO-BLOCK triggered for {:?}: {}",
+                            event.symbol_id,
+                            reject.reason
+                        );
+                        let _ = risk_tx.try_send(event.clone());
+                    }
+                    let _ = oms_tx.try_send(event.clone());
                 }
                 EventKind::Halt => {
                     // Route to OMS (manages open positions), Risk (Monitor Only), and Fast (state reset)
@@ -907,6 +964,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Heartbeat => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
+                    let _ = slow_tx.try_send(event.clone());
                 }
                 EventKind::Reconnect => {
                     log::warn!("Bridge Reconnected - Triggering Sync");

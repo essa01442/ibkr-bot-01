@@ -127,10 +127,9 @@ impl OrderManagementSystem {
 
     /// Returns list of order IDs that have been pending for more than `timeout_micros` microseconds.
     pub fn find_timed_out_orders(&self, now_micros: u64, timeout_micros: u64) -> Vec<u64> {
-        self.orders.values()
-            .filter(|o| {
-                o.status == OrderStatus::Pending || o.status == OrderStatus::Live
-            })
+        self.orders
+            .values()
+            .filter(|o| o.status == OrderStatus::Pending || o.status == OrderStatus::Live)
             .filter(|o| now_micros.saturating_sub(o.created_at) > timeout_micros)
             .map(|o| o.order_id)
             .collect()

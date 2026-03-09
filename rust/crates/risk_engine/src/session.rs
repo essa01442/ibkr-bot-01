@@ -33,8 +33,7 @@ impl SessionGuard {
     /// Returns the current session state based on the given UTC timestamp (microseconds).
     pub fn session_state(&self, ts_micros: u64) -> SessionState {
         let secs = (ts_micros / 1_000_000) as i64;
-        let dt_utc = DateTime::<Utc>::from_timestamp(secs, 0)
-            .unwrap_or_else(Utc::now);
+        let dt_utc = DateTime::<Utc>::from_timestamp(secs, 0).unwrap_or_else(Utc::now);
         let dt_et = dt_utc.with_timezone(&Eastern);
         let t = dt_et.time();
 
@@ -84,7 +83,10 @@ mod tests {
 
         // 2026-03-10 09:35 ET = 14:35 UTC
         let ts_open_vol = 1741613700_u64 * 1_000_000;
-        assert_eq!(guard.session_state(ts_open_vol), SessionState::OpenVolatility);
+        assert_eq!(
+            guard.session_state(ts_open_vol),
+            SessionState::OpenVolatility
+        );
         assert!(!guard.entry_allowed(ts_open_vol));
     }
 }

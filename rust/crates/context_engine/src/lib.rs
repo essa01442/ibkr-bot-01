@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContextParams {
-    pub volume_multiplier_2x: f64,   // 2.0
-    pub volume_multiplier_3x: f64,   // 3.0
-    pub sector_momentum_min_pct: f64,// 2.0 (percent)
-    pub churn_max_move_pct: f64,     // 0.01 (1%)
-    pub churn_window_minutes: u64,   // 10
+    pub volume_multiplier_2x: f64,    // 2.0
+    pub volume_multiplier_3x: f64,    // 3.0
+    pub sector_momentum_min_pct: f64, // 2.0 (percent)
+    pub churn_max_move_pct: f64,      // 0.01 (1%)
+    pub churn_window_minutes: u64,    // 10
 }
 
 impl Default for ContextParams {
@@ -130,7 +130,9 @@ impl ContextEngine {
         }
 
         // Volume is between 2× and 3×: needs at least ONE qualifier (§9.2)
-        let has_sector = self.sector_momentum.as_ref()
+        let has_sector = self
+            .sector_momentum
+            .as_ref()
             .map(|s| s.is_favorable && s.change_pct.abs() >= self.params.sector_momentum_min_pct)
             .unwrap_or(false);
 

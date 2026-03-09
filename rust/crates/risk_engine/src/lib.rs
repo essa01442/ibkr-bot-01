@@ -17,6 +17,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 
+pub mod blocklist;
+pub mod calendar;
 pub mod exposure;
 pub mod guards;
 pub mod pdt;
@@ -45,8 +47,17 @@ pub struct RiskState {
     #[serde(skip, default)]
     pub pdt_guard: pdt::PdtGuard,
 
+    #[serde(skip)]
+    pub blocklist_loader: blocklist::Blocklist,
+
     /// Tracks unsettled cash from recent sells. key = settlement_date_ordinal, value = USD amount.
     pub unsettled_proceeds: std::collections::BTreeMap<u32, f64>,
+}
+
+impl Default for blocklist::Blocklist {
+    fn default() -> Self {
+        blocklist::Blocklist::new("configs/blocklist.toml", 60)
+    }
 }
 
 impl RiskState {
@@ -63,6 +74,7 @@ impl RiskState {
             risk_ladder: Vec::new(),
             exposure_validator: exposure::ExposureValidator::new(),
             pdt_guard: pdt::PdtGuard::new(3),
+            blocklist_loader: blocklist::Blocklist::new("configs/blocklist.toml", 60),
             unsettled_proceeds: std::collections::BTreeMap::new(),
         }
     }
@@ -124,7 +136,7 @@ impl RiskState {
     }
 
     pub fn check_entry(
-        &self,
+        &mut self,
         symbol_id: SymbolId,
         open_symbols: &[SymbolId],
         today_ordinal: u32,
@@ -138,6 +150,14 @@ impl RiskState {
             if let Some(&CorporateAction::Block) = self.corporate_actions.get(&symbol_id) {
                 return Err(RejectReason::CorporateActionBlock);
             }
+            return Err(RejectReason::Blocklist);
+        }
+
+        // Dynamic blocklist reload check (§29)
+        self.blocklist_loader.reload_if_needed();
+        // Sync IDs from loader to the HashSet (loader manages expiry)
+        // The loader's `is_blocked()` is the authoritative check:
+        if self.blocklist_loader.is_blocked(symbol_id) {
             return Err(RejectReason::Blocklist);
         }
 

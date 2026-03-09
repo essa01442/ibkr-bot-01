@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Execution Engine Crate (OMS).
 //!
 //! Manages Order State, Fills, Timeouts, and Idempotency.

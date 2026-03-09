@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 use log::info;
 use std::sync::Arc;
 use tokio::sync::broadcast;

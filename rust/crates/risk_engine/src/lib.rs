@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Risk Engine Crate.
 //!
 //! Enforces pre-trade risk checks, Loss Ladders, and Kill Switches.

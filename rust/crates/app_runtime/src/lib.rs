@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! App Runtime Crate (Orchestration).
 //!
 //! Wires together all the components and spawns the task graph.

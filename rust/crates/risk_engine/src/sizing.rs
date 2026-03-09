@@ -150,6 +150,17 @@ impl PricingModel {
 
     /// Full ExpectedNet = Gross − TotalFees − ExpectedSlippage per §18.3.
     /// Returns the net profit estimate. Negative = reject.
+    ///
+    /// # Example
+    /// ```
+    /// use risk_engine::sizing::PricingModel;
+    /// let model = PricingModel {
+    ///     commission_per_share: 0.005, sec_fee_rate: 0.0000278,
+    ///     taf_rate: 0.000166, slippage_alpha: 0.5, slippage_beta: 0.3, min_net_profit_usd: 0.10,
+    /// };
+    /// let net = model.expected_net(200, 2.00, 2.0, 0.001, 10000.0);
+    /// assert!(net > 0.0, "should be positive net for good trade");
+    /// ```
     pub fn expected_net(
         &self,
         shares: u32,

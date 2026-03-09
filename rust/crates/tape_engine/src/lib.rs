@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Tape Engine Crate (Fast Loop Logic).
 //!
 //! Contains the core trading logic: Tape Reading, Microstructure Guards, and Entry Triggers.

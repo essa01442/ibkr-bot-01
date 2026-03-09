@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Bridge Receiver Crate.
 //!
 //! Handles the reception and decoding of data from the Python bridge.

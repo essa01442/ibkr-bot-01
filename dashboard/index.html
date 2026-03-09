@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Robust Penny Scalper v7.0</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+  <style>
+    :root {
+      --bg: #0b1220; --panel: rgba(255,255,255,.04); --text: #e6edf6;
+      --muted: #64748b; --accent: #4cc9f0; --ok: #34d399;
+      --warn: #fbbf24; --danger: #fb7185; --purple: #a78bfa;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', Arial, sans-serif; padding: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .card { background: var(--panel); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 16px; }
+    .card-title { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; letter-spacing: 1px; }
+    .card-value { font-size: 28px; font-weight: bold; }
+    .ok { color: var(--ok); } .warn { color: var(--warn); } .danger { color: var(--danger); } .accent { color: var(--accent); }
+    .monitor-banner { background: rgba(251,185,36,.12); border: 2px solid var(--warn); border-radius: 12px; padding: 16px; text-align: center; font-size: 18px; font-weight: bold; color: var(--warn); margin-bottom: 16px; display: none; }
+    .monitor-banner.active { display: block; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.6;} }
+    h1 { color: var(--accent); font-size: 20px; margin-bottom: 16px; }
+    .alert-list { list-style: none; }
+    .alert-list li { padding: 4px 8px; margin: 4px 0; border-radius: 6px; background: rgba(251,113,133,.1); border: 1px solid rgba(251,113,133,.3); font-size: 13px; color: var(--danger); }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-left: 6px; }
+    .status-dot.ok { background: var(--ok); }
+    .status-dot.warn { background: var(--warn); }
+    .status-dot.danger { background: var(--danger); }
+    .ws-status { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    function StatusDot({ state }) {
+      const cls = state === 'Normal' || state === 'OK' || state === 'ok' ? 'ok'
+                : state === 'Caution' || state === 'Degraded' ? 'warn' : 'danger';
+      return <span className={`status-dot ${cls}`}></span>;
+    }
+
+    function Card({ title, value, cls, extra }) {
+      return (
+        <div className="card">
+          <div className="card-title">{title}</div>
+          <div className={`card-value ${cls || ''}`}>{value}</div>
+          {extra && <div style={{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}}>{extra}</div>}
+        </div>
+      );
+    }
+
+    function Dashboard() {
+      const [snap, setSnap] = useState(null);
+      const [wsState, setWsState] = useState('connecting');
+      const wsRef = useRef(null);
+
+      useEffect(() => {
+        const connect = () => {
+          const ws = new WebSocket(`ws://${location.host}/ws`);
+          wsRef.current = ws;
+          ws.onopen  = () => setWsState('connected');
+          ws.onclose = () => { setWsState('disconnected'); setTimeout(connect, 2000); };
+          ws.onerror = () => setWsState('error');
+          ws.onmessage = (e) => {
+            try { setSnap(JSON.parse(e.data)); } catch {}
+          };
+        };
+        connect();
+        return () => wsRef.current?.close();
+      }, []);
+
+      if (!snap) return (
+        <div>
+          <h1>⬡ Robust Penny Scalper v7.0</h1>
+          <div className="ws-status">الاتصال: {wsState}</div>
+          <div style={{color:'var(--muted)'}}>في انتظار البيانات...</div>
+        </div>
+      );
+
+      const regimeClass = snap.regime === 'Normal' ? 'ok' : snap.regime === 'Caution' ? 'warn' : 'danger';
+      const pnlClass = snap.daily_pnl_usd >= 0 ? 'ok' : 'danger';
+
+      return (
+        <div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
+            <h1>⬡ Robust Penny Scalper v7.0</h1>
+            <div className="ws-status">
+              <span className={`status-dot ${wsState === 'connected' ? 'ok' : 'danger'}`}></span>
+              {wsState === 'connected' ? ' متصل' : ' منقطع'}
+            </div>
+          </div>
+
+          {snap.monitor_only && (
+            <div className="monitor-banner active">
+              ⚠️ وضع المراقبة فقط — لا صفقات جديدة — {snap.data_quality === 'Degraded' ? 'البيانات متدهورة' : 'سبب آخر'}
+            </div>
+          )}
+
+          <div className="grid">
+            <Card title="الوضع السوقي" value={snap.regime} cls={regimeClass}
+              extra={<><StatusDot state={snap.regime} /> {snap.session_state}</>} />
+            <Card title="ربح اليوم" value={`$${snap.daily_pnl_usd.toFixed(2)}`} cls={pnlClass}
+              extra={`خسارة يومية متبقية: $${snap.max_daily_loss_remaining.toFixed(2)}`} />
+            <Card title="كمون P95" value={`${snap.p95_latency_us}µs`}
+              cls={snap.p95_latency_us > 10000 ? 'warn' : 'ok'} />
+            <Card title="المراكز المفتوحة" value={snap.open_positions} cls="accent" />
+            <Card title="جودة البيانات" value={snap.data_quality}
+              cls={snap.data_quality === 'OK' ? 'ok' : 'danger'} />
+            <Card title="حالة OMS" value={snap.oms_state}
+              cls={snap.oms_state === 'IDLE' ? 'ok' : snap.oms_state === 'ACTIVE' ? 'accent' : 'danger'} />
+            <Card title="اشتراكات IBKR"
+              value={`${snap.ibkr_subscription_count}/${snap.ibkr_subscription_budget}`}
+              cls={snap.ibkr_subscription_count >= snap.ibkr_subscription_budget * 0.8 ? 'warn' : 'ok'} />
+            <Card title="مستوى سلم الخسائر"
+              value={snap.loss_ladder_level === 0 ? 'لا خسائر' : `المستوى ${snap.loss_ladder_level}`}
+              cls={snap.loss_ladder_level === 0 ? 'ok' : 'danger'} />
+          </div>
+
+          {snap.recent_alerts.length > 0 && (
+            <div className="card" style={{marginBottom:'12px'}}>
+              <div className="card-title">⚠️ التنبيهات الأخيرة</div>
+              <ul className="alert-list">
+                {snap.recent_alerts.map((a, i) => <li key={i}>{a}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {snap.recent_rejects.length > 0 && (
+            <div className="card">
+              <div className="card-title">آخر رفضيات القرار</div>
+              <div style={{fontSize:'13px',color:'var(--muted)'}}>
+                {snap.recent_rejects.join(' · ')}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<Dashboard />);
+  </script>
+</body>
+</html>

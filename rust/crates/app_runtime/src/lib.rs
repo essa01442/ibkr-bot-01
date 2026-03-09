@@ -383,6 +383,14 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         guard.rebuild_state(sync.positions);
                     }
                 }
+                EventKind::Reject(reject) => {
+                    // Auto-block logic
+                    if reject.reason.contains("DELISTING") || reject.reason.contains("COMPLIANCE") {
+                        if let Ok(mut guard) = risk_state_clone.lock() {
+                            guard.block_symbol(event.symbol_id);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -928,12 +936,24 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Snapshot(_) => {
                     let _ = slow_tx.try_send(event.clone());
                 }
-                EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::Reject(_) => {
+                EventKind::Fill(_) | EventKind::OrderStatus(_) => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
                     if let EventKind::Fill(_) = event.kind {
                         let _ = fast_tx.try_send(event.clone());
                     }
+                }
+                EventKind::Reject(ref reject) => {
+                    // Check for IBKR delisting/compliance signals → auto-block
+                    if reject.reason.contains("DELISTING") || reject.reason.contains("COMPLIANCE") {
+                        log::warn!(
+                            "AUTO-BLOCK triggered for {:?}: {}",
+                            event.symbol_id,
+                            reject.reason
+                        );
+                        let _ = risk_tx.try_send(event.clone());
+                    }
+                    let _ = oms_tx.try_send(event.clone());
                 }
                 EventKind::Halt => {
                     // Route to OMS (manages open positions), Risk (Monitor Only), and Fast (state reset)

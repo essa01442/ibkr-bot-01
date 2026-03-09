@@ -317,11 +317,10 @@ pub struct OrderStatusData {
     pub avg_fill_price: f64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[repr(C)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RejectData {
     pub order_id: u64,
-    pub reason: RejectReason,
+    pub reason: String,
     pub code: u16, // Optional error code from exchange
 }
 

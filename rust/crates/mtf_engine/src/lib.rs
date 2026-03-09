@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! MTF Engine Crate.
 //!
 //! Evaluates Multi-Timeframe Confirmation (Weekly, Daily, 4H, 15m).

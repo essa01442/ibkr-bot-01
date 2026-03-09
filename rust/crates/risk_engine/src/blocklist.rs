@@ -55,6 +55,16 @@ impl Blocklist {
     }
 
     /// Returns true if `id` is currently blocked.
+    ///
+    /// # Example
+    /// ```
+    /// use risk_engine::blocklist::Blocklist;
+    /// use core_types::SymbolId;
+    /// let mut bl = Blocklist::new("dummy.toml", 60);
+    /// bl.register_symbol("XYZ".to_string(), SymbolId(10));
+    /// bl.auto_block("XYZ".to_string(), "Delisting".to_string());
+    /// assert!(bl.is_blocked(SymbolId(10)));
+    /// ```
     pub fn is_blocked(&self, id: SymbolId) -> bool {
         self.blocked_ids.contains(&id)
     }

@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Watchlist Engine Crate (Slow Loop).
 //!
 //! Manages the tiered watchlist system (Tier A, Tier B, Tier C).

@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 use log::info;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -6,6 +7,19 @@ mod dashboard;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Catch all panics — log them before crash, enable post-mortem analysis
+    std::panic::set_hook(Box::new(|info| {
+        let location = info.location().map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".to_string());
+        let payload = info.payload()
+            .downcast_ref::<&str>().map(|s| *s)
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("non-string panic payload");
+        log::error!("PANIC at {}: {}", location, payload);
+        // Give logger time to flush
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }));
+
     env_logger::init();
     info!("Starting Robust Penny Scalper v7.0 FINAL");
 

@@ -60,6 +60,15 @@ impl SessionGuard {
     }
 
     /// Returns true if a new entry is allowed right now.
+    ///
+    /// # Example
+    /// ```
+    /// use risk_engine::session::SessionGuard;
+    /// let guard = SessionGuard::new(false);
+    /// // Example: 2026-03-10 10:00 ET = 15:00 UTC
+    /// let ts_trading = 1741615200_u64 * 1_000_000;
+    /// assert!(guard.entry_allowed(ts_trading));
+    /// ```
     pub fn entry_allowed(&self, ts_micros: u64) -> bool {
         match self.session_state(ts_micros) {
             SessionState::TradingHours => true,

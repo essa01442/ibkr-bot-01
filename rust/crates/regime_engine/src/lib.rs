@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Regime Engine Crate.
 //!
 //! Determines the global market regime (Normal, Caution, Risk-Off).

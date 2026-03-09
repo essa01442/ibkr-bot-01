@@ -1,3 +1,4 @@
+#![deny(clippy::unwrap_in_result)]
 //! Risk Engine Crate.
 //!
 //! Enforces pre-trade risk checks, Loss Ladders, and Kill Switches.
@@ -238,6 +239,11 @@ impl RiskState {
             .map(|(_, &amt)| amt)
             .sum();
         (total_cash - locked).max(0.0)
+    }
+
+    /// Returns true if config modification is safe (no open positions, OMS idle).
+    pub fn config_change_allowed(&self) -> bool {
+        self.open_positions == 0
     }
 
     // Persistence

@@ -10,3 +10,4 @@ serde = { workspace = true }
 rmp-serde = "1"
 core_types = { path = "../core_types" }
 event_bus = { path = "../event_bus" }
+scopeguard = "1"

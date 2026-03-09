@@ -373,7 +373,7 @@ impl TapeEngine {
 
         // Propagate the exact RejectReason (PdtViolation, Blocklist, MaxDailyLoss, etc.)
         match self.risk_state.lock() {
-            Ok(guard) => guard.check_entry(symbol, open_symbols, day_ordinal)?,
+            Ok(mut guard) => guard.check_entry(symbol, open_symbols, day_ordinal)?,
             Err(e) => {
                 log::error!(
                     "RiskState poisoned in evaluate_entry_logic (check_entry): {}",
@@ -485,8 +485,14 @@ impl TapeEngine {
             state.tape.avg_depth_top3,
         );
         if expected_net_val <= self.pricing_model.min_net_profit_usd {
-            println!("DEBUG: NetNegative. Shares: {}, Price: {}, Spread: {}, Net: {}, Min: {}",
-                self.last_sizing_shares, state.tape.price, state.tape.spread_cents, expected_net_val, self.pricing_model.min_net_profit_usd);
+            println!(
+                "DEBUG: NetNegative. Shares: {}, Price: {}, Spread: {}, Net: {}, Min: {}",
+                self.last_sizing_shares,
+                state.tape.price,
+                state.tape.spread_cents,
+                expected_net_val,
+                self.pricing_model.min_net_profit_usd
+            );
             return Err(RejectReason::NetNegative);
         }
 

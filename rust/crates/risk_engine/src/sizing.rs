@@ -165,7 +165,8 @@ impl PricingModel {
         let exit_price_est = entry_price * 1.10;
         let gross = self.gross(entry_price, shares);
         let fees = self.total_fees(shares, entry_price, exit_price_est);
-        let slippage = self.expected_slippage(shares, entry_price, spread_cents, vol_1m, avg_depth_top3);
+        let slippage =
+            self.expected_slippage(shares, entry_price, spread_cents, vol_1m, avg_depth_top3);
         gross - fees - slippage
     }
 }

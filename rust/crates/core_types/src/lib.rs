@@ -331,6 +331,8 @@ pub use time_buffer::TimeRingBuffer;
 pub mod config;
 pub use config::*;
 
+pub mod locale;
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct TapeMetrics {
     pub price: f64,

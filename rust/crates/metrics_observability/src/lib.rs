@@ -439,6 +439,55 @@ impl CalibrationLogger {
     }
 }
 
+/// Per §28 — generated after each trading week with ≥ 10 trades.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeeklyReviewReport {
+    pub week_start: String,
+    pub week_end: String,
+    pub total_trades: u32,
+    pub win_rate: f64,
+    pub avg_slippage_ratio: f64,
+    pub reject_distribution: Vec<(String, u32)>, // (reason_key, count)
+    pub recommendations: Vec<String>,
+}
+
+impl WeeklyReviewReport {
+    /// Generate recommendations per §28.2 rules.
+    pub fn generate_recommendations(&mut self) {
+        self.recommendations.clear();
+
+        // Win rate < 40% for 2 weeks → raise TapeScore threshold by 3
+        if self.win_rate < 0.40 {
+            self.recommendations.push(
+                "Win rate < 40% — consider raising tape_threshold_normal by 3 points (after Walk-Forward confirmation)".to_string()
+            );
+        }
+
+        // Avg slippage ratio > 1.5 → recalibrate α/β
+        if self.avg_slippage_ratio > 1.5 {
+            self.recommendations.push(
+                "Actual slippage > 1.5× predicted — recalibrate slippage_alpha and slippage_beta in default.toml".to_string()
+            );
+        }
+
+        // Check for dominant reject reason
+        if let Some((reason, count)) = self.reject_distribution.iter().max_by_key(|(_, c)| c) {
+            let total: u32 = self.reject_distribution.iter().map(|(_, c)| c).sum();
+            let pct = if total > 0 { *count as f64 / total as f64 } else { 0.0 };
+            if pct > 0.5 {
+                self.recommendations.push(
+                    format!("{} dominates rejects ({:.0}%) — review parameters for this gate", reason, pct * 100.0)
+                );
+            }
+        }
+
+        if self.total_trades < 10 {
+            self.recommendations.clear();
+            self.recommendations.push("Insufficient sample (< 10 trades) — no recommendations this week".to_string());
+        }
+    }
+}
+
 pub fn log_decision(log: &DecisionLog) {
     if let DecisionAction::Enter = log.action {
         log::info!(

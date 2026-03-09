@@ -57,6 +57,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     app_runtime::run(config).await?;
+    // Run both the dashboard server and the main application runtime
+    tokio::select! {
+        res = axum::serve(listener, app) => {
+            if let Err(e) = res {
+                log::error!("Dashboard Server error: {}", e);
+            }
+        }
+        res = app_runtime::run(config) => {
+            res?;
+        }
+    }
 
     Ok(())
 }

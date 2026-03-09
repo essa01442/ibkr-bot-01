@@ -19,6 +19,7 @@ use std::path::Path;
 
 pub mod exposure;
 pub mod guards;
+pub mod blocklist;
 pub mod pdt;
 pub mod session;
 pub mod sizing;

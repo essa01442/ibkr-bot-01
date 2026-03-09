@@ -383,6 +383,62 @@ impl AlertManager {
     }
 }
 
+/// Per §26.4 — tracks predicted vs actual slippage for α/β calibration.
+/// After ≥ 20 trades: if actual_avg > 1.5 × predicted_avg → raise alert to update config.
+#[derive(Debug, Default)]
+pub struct CalibrationLogger {
+    pub records: Vec<SlippageRecord>,
+    pub min_trades_for_eval: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlippageRecord {
+    pub symbol_id: u32,
+    pub ts: u64,
+    pub shares: u32,
+    pub entry_price: f64,
+    pub predicted_slippage: f64,
+    pub actual_slippage: f64,
+    pub ratio: f64,  // actual / predicted
+}
+
+impl CalibrationLogger {
+    pub fn new(min_trades: usize) -> Self {
+        Self { records: Vec::new(), min_trades_for_eval: min_trades }
+    }
+
+    pub fn record(&mut self, symbol_id: u32, ts: u64, shares: u32, entry_price: f64,
+                  predicted: f64, actual: f64) {
+        let ratio = if predicted > 0.0 { actual / predicted } else { 0.0 };
+        self.records.push(SlippageRecord {
+            symbol_id, ts, shares, entry_price,
+            predicted_slippage: predicted,
+            actual_slippage: actual,
+            ratio,
+        });
+    }
+
+    /// Returns Some(avg_ratio) if we have enough data, None otherwise.
+    /// Per §26.4: if avg_ratio > 1.5 → update α/β.
+    pub fn evaluate(&self) -> Option<f64> {
+        if self.records.len() < self.min_trades_for_eval { return None; }
+        let avg = self.records.iter().map(|r| r.ratio).sum::<f64>() / self.records.len() as f64;
+        Some(avg)
+    }
+
+    /// Per §26.4: checks if calibration threshold is breached.
+    pub fn needs_recalibration(&self) -> bool {
+        self.evaluate().map(|r| r > 1.5).unwrap_or(false)
+    }
+
+    /// Save to JSON for analysis.
+    pub fn save(&self, path: &str) -> std::io::Result<()> {
+        let json = serde_json::to_string_pretty(&self.records)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        std::fs::write(path, json)
+    }
+}
+
 pub fn log_decision(log: &DecisionLog) {
     if let DecisionAction::Enter = log.action {
         log::info!(

@@ -369,6 +369,11 @@ impl TapeEngine {
         ts_src: u64,
         day_ordinal: u32,
     ) -> Result<(), RejectReason> {
+        // §20.2: Monitor Only = no entries regardless of gates
+        if self.risk_state.lock().map(|g| g.monitor_only).unwrap_or(true) {
+            return Err(RejectReason::MonitorOnly);
+        }
+
         let state = self
             .symbol_states
             .get(&symbol)

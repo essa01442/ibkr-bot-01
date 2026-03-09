@@ -961,6 +961,18 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         stop_loss_price: Some(calculated_stop_price),
                     };
 
+                    // Paper mode safety: log order but don't execute (for calibration phase)
+                    #[cfg(feature = "paper_mode")]
+                    {
+                        log::info!(
+                            "PAPER ORDER [NOT SENT]: sym={:?} qty={} price={:.4} stop={:.4}",
+                            request.symbol_id, request.qty,
+                            request.limit_price.unwrap_or(0.0),
+                            request.stop_loss_price.unwrap_or(0.0)
+                        );
+                        continue;
+                    }
+                    #[cfg(not(feature = "paper_mode"))]
                     if let Err(e) = order_tx.try_send(request) {
                         match e {
                             mpsc::error::TrySendError::Full(_) => {

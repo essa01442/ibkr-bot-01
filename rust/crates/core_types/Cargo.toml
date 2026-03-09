@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+arrayvec = { version = "0.7", features = ["serde"] }
 
 [dev-dependencies]
 toml = { workspace = true }

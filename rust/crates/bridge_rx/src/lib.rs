@@ -47,7 +47,7 @@ impl QosPriority {
             EventKind::Heartbeat => QosPriority::Low,
             EventKind::Reconnect => QosPriority::Critical, // Critical control event
             EventKind::StateSync(_) => QosPriority::Critical, // Critical control event
-            EventKind::Halt => QosPriority::Critical, // Critical control event
+            EventKind::Halt => QosPriority::Critical,      // Critical control event
         }
     }
 }
@@ -192,7 +192,8 @@ impl BridgeRxTask {
                     // Or if invalid marker, it's corrupt.
                     // Let's assume unexpected EOF is "need more bytes".
                     match e {
-                        Error::InvalidMarkerRead(ref io_err) | Error::InvalidDataRead(ref io_err) => {
+                        Error::InvalidMarkerRead(ref io_err)
+                        | Error::InvalidDataRead(ref io_err) => {
                             if io_err.kind() == std::io::ErrorKind::UnexpectedEof {
                                 // Need more data
                                 break;

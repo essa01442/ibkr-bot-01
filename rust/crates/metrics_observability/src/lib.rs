@@ -58,36 +58,6 @@ pub struct DecisionLog {
     pub tape_score: f64,
     pub tape_score_threshold: f64,
 
-
-    // TapeScore components
-    pub r_score: f64,
-    pub a_score: f64,
-    pub lp_score: f64,
-    pub spr_score: f64,
-    pub abs_score: f64,
-    pub bls_score: f64,
-    pub tape_score: f64,
-    pub tape_score_threshold: f64,
-
-    // TapeScore components
-    pub r_score: f64,
-    pub a_score: f64,
-    pub lp_score: f64,
-    pub spr_score: f64,
-    pub abs_score: f64,
-    pub bls_score: f64,
-    pub tape_score: f64,
-    pub tape_score_threshold: f64,
-
-
-    // Pricing
-    pub price: f64,
-    pub expected_net: f64,
-    pub expected_gross: f64,
-    pub total_fees: f64,
-    pub expected_slippage: f64,
-
-
     // Pricing
     pub price: f64,
     pub expected_net: f64,
@@ -122,12 +92,22 @@ impl DecisionLog {
             gate_mtf: true,
             gate_anti_chase: true,
             gate_guards: true,
-            r_score: 0.0, a_score: 0.0, lp_score: 0.0, spr_score: 0.0,
-            abs_score: 0.0, bls_score: 0.0,
-            tape_score: 0.0, tape_score_threshold: 0.0,
-            price: 0.0, expected_net: 0.0, expected_gross: 0.0,
-            total_fees: 0.0, expected_slippage: 0.0,
-            latency_src_rx: 0, latency_rx_proc: 0, latency_proc_decision: 0,
+            r_score: 0.0,
+            a_score: 0.0,
+            lp_score: 0.0,
+            spr_score: 0.0,
+            abs_score: 0.0,
+            bls_score: 0.0,
+            tape_score: 0.0,
+            tape_score_threshold: 0.0,
+            price: 0.0,
+            expected_net: 0.0,
+            expected_gross: 0.0,
+            total_fees: 0.0,
+            expected_slippage: 0.0,
+            latency_src_rx: 0,
+            latency_rx_proc: 0,
+            latency_proc_decision: 0,
             cold_start_state: ColdStartState::ColdStart,
             regime_state: RegimeState::Normal,
         }
@@ -156,7 +136,7 @@ pub struct TradeJournal {
     pub total_fees: f64,
     pub actual_slippage: f64,
     pub net_pnl: f64,
-    pub expected_slippage: f64,  // For calibration comparison
+    pub expected_slippage: f64, // For calibration comparison
 
     // Exit reason
     pub exit_reason: ExitReason,
@@ -167,24 +147,24 @@ pub struct TradeJournal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ExitReason {
-    Target,        // Hit $50 gross or 10% move
-    Stop,          // Server-side stop triggered
-    Manual,        // Manual close
-    LuldHalt,      // LULD/Halt emergency exit
-    RegimeChange,  // Regime turned Risk-Off
-    TapeReversal,  // R < 0.7 + spread widening
-    SessionClose,  // End of session
+    Target,       // Hit $50 gross or 10% move
+    Stop,         // Server-side stop triggered
+    Manual,       // Manual close
+    LuldHalt,     // LULD/Halt emergency exit
+    RegimeChange, // Regime turned Risk-Off
+    TapeReversal, // R < 0.7 + spread widening
+    SessionClose, // End of session
     Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LossAttributionCode {
-    EntryModel,  // Wrong signal / bad threshold
-    Context,     // Daily or MTF filter failure
-    Guards,      // Spread/depth/volatility structural issue
-    Execution,   // Slippage / delay / partial fills
-    Risk,        // Stop / ladder / kill switch
-    Data,        // Data degradation / missing packets
+    EntryModel, // Wrong signal / bad threshold
+    Context,    // Daily or MTF filter failure
+    Guards,     // Spread/depth/volatility structural issue
+    Execution,  // Slippage / delay / partial fills
+    Risk,       // Stop / ladder / kill switch
+    Data,       // Data degradation / missing packets
 }
 
 pub struct TradeJournalStore {
@@ -194,7 +174,10 @@ pub struct TradeJournalStore {
 
 impl TradeJournalStore {
     pub fn new(capacity: usize) -> Self {
-        Self { trades: std::collections::VecDeque::with_capacity(capacity), capacity }
+        Self {
+            trades: std::collections::VecDeque::with_capacity(capacity),
+            capacity,
+        }
     }
 
     pub fn record_entry(&mut self, journal: TradeJournal) {
@@ -213,7 +196,10 @@ impl TradeJournalStore {
         exit_reason: ExitReason,
         loss_attribution: Option<LossAttributionCode>,
     ) {
-        if let Some(trade) = self.trades.iter_mut().rev()
+        if let Some(trade) = self
+            .trades
+            .iter_mut()
+            .rev()
             .find(|t| t.symbol_id == symbol_id && t.exit_ts.is_none())
         {
             trade.exit_ts = Some(exit_ts);
@@ -266,11 +252,17 @@ impl LatencyTracker {
         let p95 = self.p95();
         if p95 > SLA_HARD_FAIL_MICROS {
             match self.consecutive_breach_start {
-                None => { self.consecutive_breach_start = Some(now_micros); }
+                None => {
+                    self.consecutive_breach_start = Some(now_micros);
+                }
                 Some(start) => {
                     if now_micros.saturating_sub(start) >= SLA_HARD_FAIL_DURATION_MICROS {
                         if !self.hard_fail_triggered {
-                            log::error!("SLA HARD FAIL: P95={}µs for {}s — entering Monitor Only", p95, SLA_HARD_FAIL_DURATION_MICROS / 1_000_000);
+                            log::error!(
+                                "SLA HARD FAIL: P95={}µs for {}s — entering Monitor Only",
+                                p95,
+                                SLA_HARD_FAIL_DURATION_MICROS / 1_000_000
+                            );
                             self.hard_fail_triggered = true;
                         }
                         return true;
@@ -339,8 +331,14 @@ impl MetricsCollector {
 
     /// Returns reject rate for a given reason (0.0–1.0).
     pub fn reject_rate(&self, reason: RejectReason) -> f64 {
-        if self.total_decisions == 0 { return 0.0; }
-        let count = self.reject_counts.get(&(reason as u8)).copied().unwrap_or(0);
+        if self.total_decisions == 0 {
+            return 0.0;
+        }
+        let count = self
+            .reject_counts
+            .get(&(reason as u8))
+            .copied()
+            .unwrap_or(0);
         count as f64 / self.total_decisions as f64
     }
 }
@@ -366,7 +364,10 @@ pub struct AlertManager {
 
 impl AlertManager {
     pub fn new(capacity: usize) -> Self {
-        Self { alerts: std::collections::VecDeque::with_capacity(capacity), capacity }
+        Self {
+            alerts: std::collections::VecDeque::with_capacity(capacity),
+            capacity,
+        }
     }
 
     pub fn raise(&mut self, alert: Alert) {
@@ -386,13 +387,21 @@ pub fn log_decision(log: &DecisionLog) {
     if let DecisionAction::Enter = log.action {
         log::info!(
             "ENTER sym={:?} price={:.4} tape={:.1}/{:.1} net={:.4} lat={}µs",
-            log.symbol_id, log.price, log.tape_score, log.tape_score_threshold,
-            log.expected_net, log.latency_proc_decision
+            log.symbol_id,
+            log.price,
+            log.tape_score,
+            log.tape_score_threshold,
+            log.expected_net,
+            log.latency_proc_decision
         );
     } else {
         log::debug!(
             "REJECT sym={:?} reason={:?} price={:.4} tape={:.1} net={:.4}",
-            log.symbol_id, log.reject_reason, log.price, log.tape_score, log.expected_net
+            log.symbol_id,
+            log.reject_reason,
+            log.price,
+            log.tape_score,
+            log.expected_net
         );
     }
 }

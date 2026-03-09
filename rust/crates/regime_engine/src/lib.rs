@@ -38,8 +38,8 @@ impl Default for RegimeParams {
 
 pub struct RegimeEngine {
     params: RegimeParams,
-    pub spy_atr_1m: f64,        // As fraction (0.0018 = 0.18%)
-    pub market_breadth: f64,    // As fraction (0.45 = 45%)
+    pub spy_atr_1m: f64,          // As fraction (0.0018 = 0.18%)
+    pub market_breadth: f64,      // As fraction (0.45 = 45%)
     pub spy_spread_baseline: f64, // Baseline SPY spread (set at session open)
     pub avg_spread_current: f64,  // Current average spread width
     pub is_calendar_risk: bool,

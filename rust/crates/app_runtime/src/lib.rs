@@ -174,6 +174,14 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut oms_positions: std::collections::HashMap<core_types::SymbolId, OmsPosition> = std::collections::HashMap::new();
 
+        // Instantiate BridgeCmdSender once outside the loop for performance
+        #[cfg(not(feature = "paper_mode"))]
+        let cmd_sender = bridge_rx::cmd_sender::BridgeCmdSender::new("/var/run/rps/rps_commands.sock")
+            .map_err(|e| {
+                log::error!("Failed to initialize BridgeCmdSender: {}", e);
+                e
+            }).ok();
+
         loop {
             tokio::select! {
                 _ = shutdown_token_oms.cancelled() => {
@@ -191,18 +199,42 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let now = now_micros();
                     let timeouts = oms.check_timeouts(now, 30_000_000); // 30s timeout
                     for order_id in &timeouts {
-                        oms.cancel_order(*order_id, now);
-                        log::warn!("Order {} timed out after 30s — marked Cancelled locally. \
-                                    Python bridge must cancel with broker.", order_id);
-                        // TODO: A dedicated Rust→Python cancel command channel is required for production.
-                        // When an order times out, a CancelOrder(broker_order_id) message must be sent to
-                        // the Python bridge, which calls ib.cancelOrder(). This requires adding:
-                        // 1. A new UDS message type: { "type": "cancel", "broker_order_id": "..." }
-                        // 2. A Sender<CancelCommand> passed into OmsTask
-                        // 3. Python UDS receiver loop that handles cancel commands alongside market data
+                        if let Ok(_) = oms.cancel_order(*order_id, now) {
+                            log::warn!("Order {} timed out after 30s — marked PendingCancel locally. \
+                                        Sending to Python bridge.", order_id);
+
+                            let cancel_req = core_types::OmsCommand::CancelOrder(core_types::CancelRequest {
+                                order_id: *order_id,
+                            });
+
+                            #[cfg(not(feature = "paper_mode"))]
+                            {
+                                if let Some(sender) = &cmd_sender {
+                                    if let Err(e) = sender.send_command(&cancel_req) {
+                                        log::error!("Failed to send timeout cancel command to bridge: {}", e);
+                                    } else {
+                                        oms.mark_cancel_sent(*order_id, now);
+                                    }
+                                }
+                            }
+
+                            #[cfg(feature = "paper_mode")]
+                            {
+                                log::info!("PAPER ORDER [NOT SENT]: TIMEOUT CANCEL request for order_id={}", order_id);
+                                oms.mark_cancel_sent(*order_id, now);
+                            }
+                        }
                     }
                     if !timeouts.is_empty() {
                         log::warn!("Timed out orders: {:?}", timeouts);
+                    }
+
+                    // Check for cancel timeouts
+                    let cancel_timeout_us = config.execution.cancel_timeout_ms * 1000;
+                    let cancel_timeouts = oms.check_cancel_timeouts(now, cancel_timeout_us);
+                    for order_id in &cancel_timeouts {
+                        log::error!("Order {} cancel request timed out after {}ms without broker ack — escalated.", order_id, config.execution.cancel_timeout_ms);
+                        // Alert would be triggered here in real implementation
                     }
                 }
                 Some(event) = oms_rx.recv() => {
@@ -283,6 +315,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             }
                         },
                         EventKind::OrderStatus(status) => oms.handle_status(status, event.ts_rx),
+                        EventKind::CancelAck(ack) => oms.handle_cancel_ack(ack.order_id, event.ts_rx),
+                        EventKind::CancelReject(rej) => oms.handle_cancel_reject(rej.order_id, &rej.reason, event.ts_rx),
                         EventKind::StateSync(sync) => {
                             let stale = oms.reconcile_state(sync);
                             if !stale.is_empty() {
@@ -314,12 +348,54 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         _ => {}
                     }
                 }
-                Some(request) = oms_order_rx.recv() => {
+                Some(command) = oms_order_rx.recv() => {
                     let now = now_micros();
-                    if let Err(e) = oms.place_order(request, now) {
-                        log::error!("OMS rejected order: {}", e);
-                    } else {
-                        log::info!("OMS placed order");
+                    match command {
+                        core_types::OmsCommand::NewOrder(ref request) => {
+                            if let Err(e) = oms.place_order(request.clone(), now) {
+                                log::error!("OMS rejected order: {}", e);
+                            } else {
+                                log::info!("OMS placed order locally, forwarding to bridge...");
+                                // Forward command to Python Bridge
+                                #[cfg(not(feature = "paper_mode"))]
+                                {
+                                    if let Some(sender) = &cmd_sender {
+                                        if let Err(e) = sender.send_command(&command) {
+                                            log::error!("Failed to send NewOrder command to bridge: {}", e);
+                                        }
+                                    } else {
+                                        log::error!("BridgeCmdSender not initialized for NewOrder command");
+                                    }
+                                }
+                            }
+                        }
+                        core_types::OmsCommand::CancelOrder(ref request) => {
+                            if let Err(e) = oms.cancel_order(request.order_id, now) {
+                                log::error!("OMS rejected cancel: {}", e);
+                            } else {
+                                log::info!("OMS initiated cancel for order {}", request.order_id);
+
+                                // Forward command to Python Bridge
+                                #[cfg(not(feature = "paper_mode"))]
+                                {
+                                    if let Some(sender) = &cmd_sender {
+                                        if let Err(e) = sender.send_command(&command) {
+                                            log::error!("Failed to send cancel command to bridge: {}", e);
+                                        } else {
+                                            oms.mark_cancel_sent(request.order_id, now);
+                                        }
+                                    } else {
+                                        log::error!("BridgeCmdSender not initialized for cancel command");
+                                    }
+                                }
+
+                                #[cfg(feature = "paper_mode")]
+                                {
+                                    log::info!("PAPER ORDER [NOT SENT]: CANCEL request for order_id={}", request.order_id);
+                                    oms.mark_cancel_sent(request.order_id, now);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -479,7 +555,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     take_profit_price: None,
                                     stop_loss_price: None,
                                 };
-                                let _ = oms_order_tx_clone.try_send(partial_req);
+                                let _ = oms_order_tx_clone.try_send(core_types::OmsCommand::NewOrder(partial_req));
                                 log::info!(
                                     "PARTIAL EXIT: {:?} qty={} @ {:.4} (gross={:.2}, move={:.2}%)",
                                     event.symbol_id,
@@ -788,7 +864,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             stop_loss_price: None,
                         };
 
-                        if let Err(e) = order_tx.try_send(request) {
+                        if let Err(e) = order_tx.try_send(core_types::OmsCommand::NewOrder(request)) {
                             log::error!(
                                 "Failed to send CLOSE ALL order for {:?}: {:?}",
                                 symbol_id,
@@ -927,7 +1003,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 take_profit_price: None,
                                 stop_loss_price: None,
                             };
-                            let _ = order_tx.try_send(req);
+                            let _ = order_tx.try_send(core_types::OmsCommand::NewOrder(req));
                             log::warn!(
                                 "EMERGENCY EXIT sent for {:?} after {}s halt",
                                 event.symbol_id,
@@ -1038,7 +1114,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     }
                     #[cfg(not(feature = "paper_mode"))]
-                    if let Err(e) = order_tx.try_send(request) {
+                    if let Err(e) = order_tx.try_send(core_types::OmsCommand::NewOrder(request)) {
                         match e {
                             mpsc::error::TrySendError::Full(_) => {
                                 log::warn!("OMS Order Queue Full!")
@@ -1097,7 +1173,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Snapshot(_) => {
                     let _ = slow_tx.try_send(event.clone());
                 }
-                EventKind::Fill(_) | EventKind::OrderStatus(_) => {
+                EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::CancelAck(_) | EventKind::CancelReject(_) => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
                     if let EventKind::Fill(_) = event.kind {

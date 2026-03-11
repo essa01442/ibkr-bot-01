@@ -101,14 +101,12 @@ class IbkrClient:
             logger.error(f"Failed to cancel order {broker_order_id}: {e}")
             return False
 
-    async def listen_for_commands(self) -> None:
+    async def listen_for_commands(self, uds_sender) -> None:
         """
-        Listens on a separate UDS socket for commands from Rust (cancel, place).
-        Commands are newline-delimited JSON.
-        Format: {"type": "cancel", "broker_order_id": 12345}
-                {"type": "place", "symbol_id": 1, "side": "BUY", "qty": 100,
-                 "limit_price": 5.50, "stop_loss": 5.40, "key": "..."}
+        Listens on a separate UDS Datagram socket for commands from Rust (OmsCommand).
+        Commands are msgpack serialized.
         """
+        self.uds_sender = uds_sender
         sock_path = pathlib.Path(self.command_socket_path)
         sock_dir = sock_path.parent
 
@@ -123,43 +121,57 @@ class IbkrClient:
         if sock_path.exists():
             os.unlink(sock_path)
 
-        server = await asyncio.start_unix_server(
-            self._handle_command_connection,
-            path=str(sock_path)
-        )
-        # Set socket permissions to 600 (rw-------)
-        os.chmod(sock_path, 0o600)
+        class CmdProtocol(asyncio.DatagramProtocol):
+            def __init__(self, ibkr_client):
+                self.ibkr_client = ibkr_client
 
-        logger.info(f"Listening for commands on {sock_path}")
-        async with server:
-            await server.serve_forever()
-
-    async def _handle_command_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        try:
-            while True:
-                line = await reader.readline()
-                if not line:
-                    break
+            def datagram_received(self, data, addr):
+                import msgpack
                 try:
-                    cmd: dict[str, Any] = json.loads(line.decode())
-                    if cmd.get('type') == 'cancel':
-                        await self.cancel_order(cmd['broker_order_id'])
-                    elif cmd.get('type') == 'place':
-                        await self.place_limit_order(
-                            symbol_id=cmd['symbol_id'],
-                            side=cmd['side'],
-                            qty=cmd['qty'],
-                            limit_price=cmd['limit_price'],
-                            idempotency_key=cmd['key'],
-                            stop_loss=cmd.get('stop_loss'),
-                            take_profit=cmd.get('take_profit'),
-                        )
-                except json.JSONDecodeError:
-                    logger.error("Invalid JSON received on command socket")
-                except KeyError as e:
-                    logger.error(f"Missing field in command: {e}")
+                    cmd = msgpack.unpackb(data)
+                    asyncio.create_task(self.ibkr_client._handle_oms_command(cmd))
+                except Exception as e:
+                    logger.error(f"Failed to decode OmsCommand: {e}")
+
+        loop = asyncio.get_running_loop()
+        transport, protocol = await loop.create_unix_datagram_endpoint(
+            lambda: CmdProtocol(self),
+            local_path=str(sock_path)
+        )
+        os.chmod(sock_path, 0o600)
+        logger.info(f"Listening for commands on {sock_path}")
+
+    async def _handle_oms_command(self, cmd: dict) -> None:
+        try:
+            if "CancelOrder" in cmd:
+                cancel_req = cmd["CancelOrder"]
+                order_id = cancel_req["order_id"]
+                # In this mockup logic we map internal order_id to string, a real impl might look it up
+                success = await self.cancel_order(order_id)
+                import time
+                ts = int(time.time() * 1_000_000)
+                if success:
+                    event = {
+                        "ts_src": ts, "ts_rx": ts, "ts_proc": ts, "seq": 0, "symbol_id": 0,
+                        "kind": {"CancelAck": {"order_id": order_id}}
+                    }
+                else:
+                    event = {
+                        "ts_src": ts, "ts_rx": ts, "ts_proc": ts, "seq": 0, "symbol_id": 0,
+                        "kind": {"CancelReject": {"order_id": order_id, "reason": "Order not found or terminal"}}
+                    }
+                if hasattr(self, 'uds_sender') and self.uds_sender:
+                    await self.uds_sender.send_event(event)
+
+            elif "NewOrder" in cmd:
+                req = cmd["NewOrder"]
+                await self.place_limit_order(
+                    symbol_id=req["symbol_id"],
+                    side="BUY" if req["side"] == "Bid" else "SELL",
+                    qty=req["qty"],
+                    limit_price=req.get("limit_price", 0.0),
+                    idempotency_key=req.get("idempotency_key", ""),
+                    stop_loss=req.get("stop_price"),
+                )
         except Exception as e:
-            logger.error(f"Command connection error: {e}")
-        finally:
-            writer.close()
-            await writer.wait_closed()
+            logger.error(f"Error handling OMS command: {e}")

@@ -46,6 +46,17 @@ pub struct OrderRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelRequest {
+    pub order_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum OmsCommand {
+    NewOrder(OrderRequest),
+    CancelOrder(CancelRequest),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
     pub order_id: u64,           // Internal ID
     pub client_order_id: arrayvec::ArrayString<64>, // Idempotency Key
@@ -71,6 +82,10 @@ pub enum OrderStatus {
     Filled = 2,
     Cancelled = 3,
     Rejected = 4,
+    PendingCancel = 5,
+    CancelSent = 6,
+    CancelRejected = 7,
+    CancelTimeout = 8,
 }
 
 /// Fixed-size reject reason for zero-allocation passing.
@@ -253,6 +268,8 @@ pub enum EventKind {
     Reconnect,
     StateSync(StateSyncData),
     Halt,
+    CancelAck(CancelAckData),
+    CancelReject(CancelRejectData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -323,6 +340,17 @@ pub struct RejectData {
     pub order_id: u64,
     pub reason: String,
     pub code: u16, // Optional error code from exchange
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelAckData {
+    pub order_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelRejectData {
+    pub order_id: u64,
+    pub reason: String,
 }
 
 // Re-export time_buffer

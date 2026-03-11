@@ -23,6 +23,9 @@ w_spr = 0.13
 w_abs = 0.08
 w_bls = 0.05
 
+[execution]
+cancel_timeout_ms = 5000
+
 [pricing]
 k_atr                  = 2.0         # ATR multiplier for StopDistance (§16.1)
 min_stop_pct           = 0.012       # 1.2% of price as MinStopDistance floor (§16.1)

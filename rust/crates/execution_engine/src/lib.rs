@@ -119,10 +119,51 @@ impl OrderManagementSystem {
         }
     }
 
-    pub fn cancel_order(&mut self, order_id: u64, timestamp_us: u64) {
+    pub fn cancel_order(&mut self, order_id: u64, timestamp_us: u64) -> Result<(), &'static str> {
         if let Some(order) = self.orders.get_mut(&order_id) {
-            order.status = OrderStatus::Cancelled;
-            order.updated_at = timestamp_us;
+            match order.status {
+                OrderStatus::Pending | OrderStatus::Live => {
+                    order.status = OrderStatus::PendingCancel;
+                    order.updated_at = timestamp_us;
+                    Ok(())
+                }
+                OrderStatus::PendingCancel | OrderStatus::CancelSent => {
+                    // Gracefully ignore duplicate cancel requests
+                    Ok(())
+                }
+                OrderStatus::Filled | OrderStatus::Cancelled | OrderStatus::Rejected | OrderStatus::CancelRejected | OrderStatus::CancelTimeout => {
+                    Err("Order in terminal state, cannot cancel")
+                }
+            }
+        } else {
+            Err("Order not found")
+        }
+    }
+
+    pub fn mark_cancel_sent(&mut self, order_id: u64, timestamp_us: u64) {
+        if let Some(order) = self.orders.get_mut(&order_id) {
+            if order.status == OrderStatus::PendingCancel {
+                order.status = OrderStatus::CancelSent;
+                order.updated_at = timestamp_us;
+            }
+        }
+    }
+
+    pub fn handle_cancel_ack(&mut self, order_id: u64, timestamp_us: u64) {
+        if let Some(order) = self.orders.get_mut(&order_id) {
+            if order.status == OrderStatus::PendingCancel || order.status == OrderStatus::CancelSent || order.status == OrderStatus::CancelTimeout {
+                order.status = OrderStatus::Cancelled;
+                order.updated_at = timestamp_us;
+            }
+        }
+    }
+
+    pub fn handle_cancel_reject(&mut self, order_id: u64, _reason: &str, timestamp_us: u64) {
+        if let Some(order) = self.orders.get_mut(&order_id) {
+            if order.status == OrderStatus::PendingCancel || order.status == OrderStatus::CancelSent {
+                order.status = OrderStatus::CancelRejected;
+                order.updated_at = timestamp_us;
+            }
         }
     }
 
@@ -143,6 +184,20 @@ impl OrderManagementSystem {
                 && now_us > order.created_at
                 && (now_us - order.created_at) > timeout_us
             {
+                timed_out.push(*id);
+            }
+        }
+        timed_out
+    }
+
+    pub fn check_cancel_timeouts(&mut self, now_us: u64, cancel_timeout_us: u64) -> Vec<u64> {
+        let mut timed_out = Vec::new();
+        for (id, order) in &mut self.orders {
+            if (order.status == OrderStatus::PendingCancel || order.status == OrderStatus::CancelSent)
+                && now_us > order.updated_at
+                && (now_us - order.updated_at) > cancel_timeout_us
+            {
+                order.status = OrderStatus::CancelTimeout;
                 timed_out.push(*id);
             }
         }
@@ -300,6 +355,156 @@ mod tests {
         let order = &oms.orders[&id];
         assert_eq!(order.filled_qty, 100);
         assert_eq!(order.status, OrderStatus::Filled);
+    }
+
+    #[test]
+    fn test_cancel_flow_success() {
+        let mut oms = OrderManagementSystem::new();
+        let request = OrderRequest {
+            symbol_id: SymbolId(1),
+            side: Side::Bid,
+            qty: 100,
+            order_type: OrderType::Limit,
+            limit_price: Some(10.0),
+            stop_price: None,
+            tif: TimeInForce::GTC,
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
+            take_profit_price: None,
+            stop_loss_price: None,
+        };
+
+        let id = oms.place_order(request, 1000).unwrap();
+        assert_eq!(oms.orders[&id].status, OrderStatus::Pending);
+
+        oms.cancel_order(id, 2000).unwrap();
+        assert_eq!(oms.orders[&id].status, OrderStatus::PendingCancel);
+
+        oms.mark_cancel_sent(id, 2500);
+        assert_eq!(oms.orders[&id].status, OrderStatus::CancelSent);
+
+        oms.handle_cancel_ack(id, 3000);
+        assert_eq!(oms.orders[&id].status, OrderStatus::Cancelled);
+    }
+
+    #[test]
+    fn test_cancel_flow_timeout() {
+        let mut oms = OrderManagementSystem::new();
+        let request = OrderRequest {
+            symbol_id: SymbolId(1),
+            side: Side::Bid,
+            qty: 100,
+            order_type: OrderType::Limit,
+            limit_price: Some(10.0),
+            stop_price: None,
+            tif: TimeInForce::GTC,
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
+            take_profit_price: None,
+            stop_loss_price: None,
+        };
+
+        let id = oms.place_order(request, 1000).unwrap();
+        oms.cancel_order(id, 2000).unwrap();
+        oms.mark_cancel_sent(id, 2500);
+
+        let timeouts = oms.check_cancel_timeouts(3000, 5000);
+        assert!(timeouts.is_empty());
+        assert_eq!(oms.orders[&id].status, OrderStatus::CancelSent);
+
+        let timeouts = oms.check_cancel_timeouts(8000, 5000);
+        assert_eq!(timeouts.len(), 1);
+        assert_eq!(timeouts[0], id);
+        assert_eq!(oms.orders[&id].status, OrderStatus::CancelTimeout);
+    }
+
+    #[test]
+    fn test_cancel_flow_duplicate() {
+        let mut oms = OrderManagementSystem::new();
+        let request = OrderRequest {
+            symbol_id: SymbolId(1),
+            side: Side::Bid,
+            qty: 100,
+            order_type: OrderType::Limit,
+            limit_price: Some(10.0),
+            stop_price: None,
+            tif: TimeInForce::GTC,
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
+            take_profit_price: None,
+            stop_loss_price: None,
+        };
+
+        let id = oms.place_order(request, 1000).unwrap();
+        assert!(oms.cancel_order(id, 2000).is_ok());
+        assert_eq!(oms.orders[&id].status, OrderStatus::PendingCancel);
+
+        // Duplicate cancel should be gracefully ignored (Ok) but not change state fundamentally
+        assert!(oms.cancel_order(id, 2500).is_ok());
+        assert_eq!(oms.orders[&id].status, OrderStatus::PendingCancel);
+
+        oms.mark_cancel_sent(id, 3000);
+        assert!(oms.cancel_order(id, 3500).is_ok());
+        assert_eq!(oms.orders[&id].status, OrderStatus::CancelSent);
+    }
+
+    #[test]
+    fn test_cancel_flow_late_ack() {
+        let mut oms = OrderManagementSystem::new();
+        let request = OrderRequest {
+            symbol_id: SymbolId(1),
+            side: Side::Bid,
+            qty: 100,
+            order_type: OrderType::Limit,
+            limit_price: Some(10.0),
+            stop_price: None,
+            tif: TimeInForce::GTC,
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
+            take_profit_price: None,
+            stop_loss_price: None,
+        };
+
+        let id = oms.place_order(request, 1000).unwrap();
+        oms.cancel_order(id, 2000).unwrap();
+        oms.mark_cancel_sent(id, 2500);
+
+        let timeouts = oms.check_cancel_timeouts(8000, 5000);
+        assert_eq!(timeouts.len(), 1);
+        assert_eq!(oms.orders[&id].status, OrderStatus::CancelTimeout);
+
+        // Late ack arrives
+        oms.handle_cancel_ack(id, 9000);
+        assert_eq!(oms.orders[&id].status, OrderStatus::Cancelled); // Transitions successfully to terminal Cancelled
+    }
+
+    #[test]
+    fn test_cancel_flow_already_filled() {
+        let mut oms = OrderManagementSystem::new();
+        let request = OrderRequest {
+            symbol_id: SymbolId(1),
+            side: Side::Bid,
+            qty: 100,
+            order_type: OrderType::Limit,
+            limit_price: Some(10.0),
+            stop_price: None,
+            tif: TimeInForce::GTC,
+            idempotency_key: arrayvec::ArrayString::from("key1").unwrap(),
+            take_profit_price: None,
+            stop_loss_price: None,
+        };
+
+        let id = oms.place_order(request, 1000).unwrap();
+        oms.handle_fill(core_types::FillData {
+            order_id: id,
+            price: 10.0,
+            size: 100,
+            side: Side::Bid,
+            liquidity: 0,
+        }, 1500);
+
+        assert_eq!(oms.orders[&id].status, OrderStatus::Filled);
+
+        // Attempting to cancel a Filled order should return an Err
+        let res = oms.cancel_order(id, 2000);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err(), "Order in terminal state, cannot cancel");
     }
 
     #[test]

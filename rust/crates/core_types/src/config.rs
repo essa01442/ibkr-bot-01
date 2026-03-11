@@ -5,12 +5,18 @@ pub struct AppConfig {
     pub risk: RiskConfig,
     pub universe: UniverseConfig,
     pub tape: TapeConfig,
+    pub execution: ExecutionConfig,
     pub pricing: PricingConfig,
     pub regime: RegimeConfig,
     pub session: SessionConfig,
     pub ibkr: IbkrConfig,
     pub context: ContextConfig,
     pub correlation: CorrelationConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ExecutionConfig {
+    pub cancel_timeout_ms: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -137,6 +143,9 @@ w_lp = 0.22
 w_spr = 0.13
 w_abs = 0.08
 w_bls = 0.05
+
+[execution]
+cancel_timeout_ms = 5000
 
 [pricing]
 k_atr = 2.0

@@ -151,14 +151,7 @@ impl TapeEngine {
 
         match event.kind {
             EventKind::Tick(tick) => {
-                // Convert ts_src (micros) to day ordinal roughly
-                // This assumes ts_src is system time or close to it.
-                // For now, we will pass 0 or compute it if needed in check_entry.
-                // Actually, tape_engine doesn't know "today".
-                // We should pass today_ordinal into on_event or TapeEngine::new?
-                // Let's compute it from ts_src for now, assuming ts_src is unix epoch micros
-                let secs = event.ts_src / 1_000_000;
-                let days = (secs / 86400) as u32; // Rough approximation (UTC)
+                let days = core_types::market_day_boundary(event.ts_src);
                 self.process_tick(event.symbol_id, event.ts_src, tick, days)
             }
             EventKind::Snapshot(snap) => {

@@ -33,27 +33,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, _rx) = broadcast::channel(100);
     let dashboard_state = Arc::new(dashboard::DashboardState { tx: tx.clone() });
 
-    // Spawn task to broadcast dummy SystemSnapshot every 250ms
+    // Ensure we do not broadcast synthetic 'Normal' / 0.0 PNL as live data
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(250));
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
         loop {
             interval.tick().await;
             let snapshot = dashboard::SystemSnapshot {
                 ts_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
-                regime: "Normal".to_string(),
-                data_quality: "Healthy".to_string(),
-                monitor_only: false,
-                session_state: "Open".to_string(),
-                daily_pnl_usd: 0.0,
+                regime: "NOT_WIRED".to_string(),
+                data_quality: "NOT_WIRED".to_string(),
+                monitor_only: true, // fail-safe
+                session_state: "NOT_WIRED".to_string(),
+                daily_pnl_usd: f64::NAN, // Clearly invalid/not 0.0
                 loss_ladder_level: 0,
-                max_daily_loss_remaining: 100.0,
+                max_daily_loss_remaining: f64::NAN,
                 open_positions: 0,
-                oms_state: "Active".to_string(),
-                p95_latency_us: 1000,
+                oms_state: "NOT_WIRED".to_string(),
+                p95_latency_us: 0,
                 ibkr_subscription_count: 0,
-                ibkr_subscription_budget: 100,
-                recent_rejects: vec![],
-                recent_alerts: vec![],
+                ibkr_subscription_budget: 0,
+                recent_rejects: vec!["SYSTEM_NOT_WIRED".to_string()],
+                recent_alerts: vec!["DASHBOARD_NOT_WIRED".to_string()],
+                is_synthetic: true, // Marker for assertion
             };
             let _ = tx.send(snapshot);
         }

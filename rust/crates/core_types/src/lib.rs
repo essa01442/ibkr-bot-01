@@ -313,6 +313,8 @@ pub struct SnapshotData {
     pub volume: u64,
     pub avg_volume_20d: u64,
     pub has_news_today: bool,
+    pub weekly_ema: f64,
+    pub daily_resistance: f64,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -359,6 +361,11 @@ pub use time_buffer::TimeRingBuffer;
 
 pub mod config;
 pub use config::*;
+
+pub mod datetime;
+pub use datetime::market_day_boundary;
+#[cfg(test)]
+mod datetime_tests;
 
 pub mod locale;
 

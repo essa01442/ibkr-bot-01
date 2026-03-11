@@ -199,6 +199,36 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let now = now_micros();
                     let timeouts = oms.check_timeouts(now, 30_000_000); // 30s timeout
                     for order_id in &timeouts {
+                        match oms.cancel_order(*order_id, now) {
+                            Ok(true) => {
+                                log::warn!("Order {} timed out after 30s — marked PendingCancel locally. \
+                                            Sending to Python bridge.", order_id);
+
+                                let cancel_req = core_types::OmsCommand::CancelOrder(core_types::CancelRequest {
+                                    order_id: *order_id,
+                                });
+
+                                #[cfg(not(feature = "paper_mode"))]
+                                {
+                                    if let Some(sender) = &cmd_sender {
+                                        if let Err(e) = sender.send_command(&cancel_req) {
+                                            log::error!("Failed to send timeout cancel command to bridge: {}", e);
+                                        } else {
+                                            oms.mark_cancel_sent(*order_id, now);
+                                        }
+                                    }
+                                }
+
+                                #[cfg(feature = "paper_mode")]
+                                {
+                                    log::info!("PAPER ORDER [NOT SENT]: TIMEOUT CANCEL request for order_id={}", order_id);
+                                    oms.mark_cancel_sent(*order_id, now);
+                                }
+                            }
+                            Ok(false) => {
+                                // Already canceling, do not resend IPC
+                            }
+                            Err(_) => {}
                         if let Ok(_) = oms.cancel_order(*order_id, now) {
                             log::warn!("Order {} timed out after 30s — marked PendingCancel locally. \
                                         Sending to Python bridge.", order_id);
@@ -370,6 +400,35 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         core_types::OmsCommand::CancelOrder(ref request) => {
+                            match oms.cancel_order(request.order_id, now) {
+                                Err(e) => {
+                                    log::error!("OMS rejected cancel: {}", e);
+                                }
+                                Ok(true) => {
+                                    log::info!("OMS initiated cancel for order {}", request.order_id);
+
+                                    // Forward command to Python Bridge
+                                    #[cfg(not(feature = "paper_mode"))]
+                                    {
+                                        if let Some(sender) = &cmd_sender {
+                                            if let Err(e) = sender.send_command(&command) {
+                                                log::error!("Failed to send cancel command to bridge: {}", e);
+                                            } else {
+                                                oms.mark_cancel_sent(request.order_id, now);
+                                            }
+                                        } else {
+                                            log::error!("BridgeCmdSender not initialized for cancel command");
+                                        }
+                                    }
+
+                                    #[cfg(feature = "paper_mode")]
+                                    {
+                                        log::info!("PAPER ORDER [NOT SENT]: CANCEL request for order_id={}", request.order_id);
+                                        oms.mark_cancel_sent(request.order_id, now);
+                                    }
+                                }
+                                Ok(false) => {
+                                    log::info!("OMS cancel already in progress for order {}", request.order_id);
                             if let Err(e) = oms.cancel_order(request.order_id, now) {
                                 log::error!("OMS rejected cancel: {}", e);
                             } else {
@@ -474,7 +533,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // PDT Logic & T+1 Settlement
-                    let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
+                    let today_ordinal = core_types::market_day_boundary(event.ts_src);
 
                     if fill.side == core_types::Side::Bid {
                         intraday_buy_tracker.insert(event.symbol_id, (today_ordinal, true));
@@ -718,11 +777,14 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     let mtf_eng = mtf_engines.entry(event.symbol_id).or_insert_with(|| {
                         mtf_engine::MtfEngine::new(
                             event.symbol_id,
-                            mtf_engine::MtfParams::default(),
+                            mtf_engine::MtfParams {
+                                require_all: config.mtf.require_all,
+                                stale_data_threshold_ms: config.mtf.stale_data_threshold_ms,
+                            },
                         )
                     });
                     mtf_eng.update_price(tick.price);
-                    let mtf_result = mtf_eng.evaluate();
+                    let mtf_result = mtf_eng.evaluate(event.ts_src);
 
                     // Push updated context to the watchlist for FastLoop consumption
                     watchlist.update_symbol_context(event.symbol_id, daily_ctx, mtf_result);
@@ -741,6 +803,26 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         );
                         ctx_eng.update_news(snap.has_news_today);
                     }
+
+                    // Update MTF engine metrics from snapshot
+                    let mtf_eng = mtf_engines.entry(event.symbol_id).or_insert_with(|| {
+                        mtf_engine::MtfEngine::new(
+                            event.symbol_id,
+                            mtf_engine::MtfParams {
+                                require_all: config.mtf.require_all,
+                                stale_data_threshold_ms: config.mtf.stale_data_threshold_ms,
+                            },
+                        )
+                    });
+                    mtf_eng.update_weekly_ema(snap.weekly_ema, event.ts_src);
+                    mtf_eng.update_daily_resistance(snap.daily_resistance, event.ts_src);
+
+                    // Immediately evaluate and update Watchlist in case MTF state changed
+                    let mtf_result = mtf_eng.evaluate(event.ts_src);
+                    let ctx_eng = context_engines.entry(event.symbol_id).or_insert_with(|| {
+                        context_engine::ContextEngine::new(event.symbol_id, context_params.clone())
+                    });
+                    watchlist.update_symbol_context(event.symbol_id, ctx_eng.compute_context(), mtf_result);
                 }
                 EventKind::Heartbeat => {
                     // §27: update calendar risk status
@@ -926,7 +1008,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 calculated_stop_dist = stop_dist;
                 calculated_stop_price = stop_price;
 
-                let today_ordinal = (event.ts_src / 1_000_000 / 86400) as u32;
+                let today_ordinal = core_types::market_day_boundary(event.ts_src);
                 let available_cash = if let Ok(guard) = tape_engine.risk_state.lock() {
                     guard.available_cash(today_ordinal, account_capital)
                 } else {

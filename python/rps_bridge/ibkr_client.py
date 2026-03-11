@@ -3,6 +3,7 @@ import json
 import logging
 import pathlib
 import os
+import msgpack
 from typing import Optional, Any
 from ib_insync import IB, LimitOrder, StopOrder, Contract
 

@@ -119,12 +119,20 @@ impl OrderManagementSystem {
         }
     }
 
+    /// Returns Ok(true) if the order was newly marked for cancel.
+    /// Returns Ok(false) if the order is already being cancelled (prevent duplicate IPC sends).
+    pub fn cancel_order(&mut self, order_id: u64, timestamp_us: u64) -> Result<bool, &'static str> {
     pub fn cancel_order(&mut self, order_id: u64, timestamp_us: u64) -> Result<(), &'static str> {
         if let Some(order) = self.orders.get_mut(&order_id) {
             match order.status {
                 OrderStatus::Pending | OrderStatus::Live => {
                     order.status = OrderStatus::PendingCancel;
                     order.updated_at = timestamp_us;
+                    Ok(true)
+                }
+                OrderStatus::PendingCancel | OrderStatus::CancelSent => {
+                    // Gracefully ignore duplicate cancel requests
+                    Ok(false)
                     Ok(())
                 }
                 OrderStatus::PendingCancel | OrderStatus::CancelSent => {

@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub session: SessionConfig,
     pub ibkr: IbkrConfig,
     pub context: ContextConfig,
+    pub mtf: MtfConfig,
     pub correlation: CorrelationConfig,
 }
 
@@ -105,6 +106,12 @@ pub struct ContextConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MtfConfig {
+    pub require_all: bool,
+    pub stale_data_threshold_ms: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CorrelationConfig {
     pub threshold: f64,
 }
@@ -187,6 +194,10 @@ sector_momentum_min_pct = 2.0
 churn_window_minutes = 10
 churn_max_move_pct = 0.01
 snap_min_trade_count = 5
+
+[mtf]
+require_all = true
+stale_data_threshold_ms = 3600000
 
 [correlation]
 threshold = 0.40

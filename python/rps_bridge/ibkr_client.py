@@ -127,6 +127,7 @@ class IbkrClient:
                 self.ibkr_client = ibkr_client
 
             def datagram_received(self, data, addr):
+                import msgpack
                 try:
                     cmd = msgpack.unpackb(data)
                     asyncio.create_task(self.ibkr_client._handle_oms_command(cmd))

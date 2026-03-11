@@ -1,4 +1,4 @@
-# Robust Penny Scalper v7.0 FINAL
+# Robust Penny Scalper v7.0
 
 ## Overview
 
@@ -24,22 +24,26 @@ This repository contains the source code for the "Robust Penny Scalper" system, 
 ### Folder Structure
 
 *   `configs/`: Configuration files (TOML) and locales.
+*   `dashboard/`: Frontend React application for real-time monitoring.
 *   `docs/`: Documentation and specifications.
+*   `logs/`: Runtime logs.
 *   `proto/`: Protocol Buffers / FlatBuffers schemas.
 *   `python/`: Python bridge code (`rps_bridge`).
 *   `rust/`: Rust workspace containing the core logic.
+    *   `bins/`: Executable binaries (`replayer`, `rpsd`).
     *   `crates/`: Modularized crates for specific domains.
         *   `app_runtime`: Application wiring and task management.
         *   `bridge_rx`: Receiving and decoding data from the bridge.
+        *   `context_engine`: Daily context and volume analysis.
         *   `core_types`: Shared domain types and error definitions.
         *   `event_bus`: Communication channels between tasks.
         *   `execution_engine`: Order Management System (OMS).
         *   `metrics_observability`: Logging, metrics, and alerting.
-        *   `risk_engine`: Risk checks and limits.
+        *   `mtf_engine`: Multi-Timeframe Analysis.
+        *   `regime_engine`: Market regime and overall trend tracking.
+        *   `risk_engine`: Risk checks, guards, and limits.
         *   `tape_engine`: FastLoop logic (Tape reading, guards).
         *   `watchlist_engine`: SlowLoop logic (Candidate selection).
-    *   `bins/`: Executable binaries (`rpsd`).
-*   `logs/`: Runtime logs.
 
 ### Requirements
 

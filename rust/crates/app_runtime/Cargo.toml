@@ -24,4 +24,3 @@ mtf_engine = { path = "../mtf_engine" }
 arc-swap = "1.6"
 arrayvec = "0.7"
 anyhow = "1"
-anyhow = "1"

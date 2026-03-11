@@ -5,12 +5,19 @@ pub struct AppConfig {
     pub risk: RiskConfig,
     pub universe: UniverseConfig,
     pub tape: TapeConfig,
+    pub execution: ExecutionConfig,
     pub pricing: PricingConfig,
     pub regime: RegimeConfig,
     pub session: SessionConfig,
     pub ibkr: IbkrConfig,
     pub context: ContextConfig,
+    pub mtf: MtfConfig,
     pub correlation: CorrelationConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ExecutionConfig {
+    pub cancel_timeout_ms: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -99,6 +106,12 @@ pub struct ContextConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MtfConfig {
+    pub require_all: bool,
+    pub stale_data_threshold_ms: u64,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CorrelationConfig {
     pub threshold: f64,
 }
@@ -137,6 +150,9 @@ w_lp = 0.22
 w_spr = 0.13
 w_abs = 0.08
 w_bls = 0.05
+
+[execution]
+cancel_timeout_ms = 5000
 
 [pricing]
 k_atr = 2.0
@@ -178,6 +194,10 @@ sector_momentum_min_pct = 2.0
 churn_window_minutes = 10
 churn_max_move_pct = 0.01
 snap_min_trade_count = 5
+
+[mtf]
+require_all = true
+stale_data_threshold_ms = 3600000
 
 [correlation]
 threshold = 0.40

@@ -327,6 +327,8 @@ name = "core_types"
 version = "0.1.0"
 dependencies = [
  "arrayvec",
+ "chrono",
+ "chrono-tz",
  "serde",
  "thiserror",
  "toml",
@@ -466,6 +468,7 @@ version = "0.1.0"
 dependencies = [
  "arrayvec",
  "core_types",
+ "event_bus",
 ]
 
 [[package]]

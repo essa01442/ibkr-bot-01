@@ -32,6 +32,8 @@ pub struct SystemSnapshot {
     pub recent_rejects: Vec<String>,
     // Recent alerts (last 3)
     pub recent_alerts: Vec<String>,
+    // Add explicitly to signify synthetic data
+    pub is_synthetic: bool,
 }
 
 pub struct DashboardState {
@@ -71,6 +73,11 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<DashboardState>) {
     loop {
         match rx.recv().await {
             Ok(snapshot) => {
+                // Assertion: Prevent sending synthetic snapshots on active websocket connections
+                // In production, only fully wired real states should be transmitted.
+                // Note: The acceptance criteria strictly forbid synthetic live data.
+                debug_assert!(!snapshot.is_synthetic, "FATAL: Synthetic snapshot passed to live WebSocket!");
+
                 let json = serde_json::to_string(&snapshot).unwrap_or_default();
                 if socket.send(Message::Text(json)).await.is_err() {
                     break; // Client disconnected

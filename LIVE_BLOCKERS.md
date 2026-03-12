@@ -7,6 +7,11 @@
 | I-03 | `rust/crates/app_runtime/src/lib.rs:401` | Resolved | Risk/Rust | The PDT guard uses a UTC-based `today_ordinal` calculation instead of US Eastern Time, which breaks the T+1 settlement logic and will miscount day trades. |
 | I-04 | `dashboard/index.html:145` | Resolved | UI/Dashboard | The dashboard attempts to render via ReactDOM but the backend only provides a static HTML shell; it is a fake/placeholder dashboard that does not properly initialize React components from a build system. |
 | I-05 | `rust/bins/replayer/src/main.rs:84` | Resolved | Testing/Replayer | The L1 replayer logic contains a 'Placeholder for now' comment instead of actually executing the decision pipeline to generate or compare golden files. |
+| I-01 | `rust/crates/app_runtime/src/lib.rs:197` | Critical | Execution/Rust | Missing a dedicated command channel to send explicit cancellations from Rust to the Python execution engine, meaning canceled orders remain live on IBKR. |
+| I-02 | `rust/crates/mtf_engine/src/lib.rs:53` | Critical | Analytics/Rust | The `update_weekly_ema` (and `update_daily_resistance`) functions are never called by the SlowLoop, leaving MTF evaluations incomplete or stuck in default states. |
+| I-03 | `rust/crates/app_runtime/src/lib.rs:401` | Critical | Risk/Rust | The PDT guard uses a UTC-based `today_ordinal` calculation instead of US Eastern Time, which breaks the T+1 settlement logic and will miscount day trades. |
+| I-04 | `dashboard/index.html:145` | Critical | UI/Dashboard | The dashboard attempts to render via ReactDOM but the backend only provides a static HTML shell; it is a fake/placeholder dashboard that does not properly initialize React components from a build system. |
+| I-05 | `rust/bins/replayer/src/main.rs:84` | Critical | Testing/Replayer | The L1 replayer logic contains a 'Placeholder for now' comment instead of actually executing the decision pipeline to generate or compare golden files. |
 | I-06 | `python/rps_bridge/encoder.py:12` | High | Bridge/Python | The `encode_flatbuffers` function is just a `pass` block, meaning flatbuffer serialization is unimplemented and standardizing on high-throughput parsing is blocked. |
 | I-07 | `rust/crates/risk_engine/src/lib.rs:228` | High | Risk/Rust | The system assumes local state persistence is the source of truth for PnL without continuously syncing and reconciling actual execution fills from the broker. |
 | I-08 | `rust/crates/app_runtime/src/lib.rs:261` | High | Observability/Rust | The FastLoop passes a hardcoded `0.0` for predicted slippage into the `CalibrationLogger`, entirely defeating the α/β recalibration mechanism. |
@@ -27,3 +32,4 @@
 | I-23 | `dashboard/index.html:9` | Low | UI/Dashboard | The UI relies on in-browser Babel compilation via a CDN for React JSX, slowing down dashboard load times and risking failure on internet outages. |
 
 **TOTAL:** Critical 0 | High 4 | Medium 8 | Low 6 | Resolved 5
+**TOTAL:** Critical 5 | High 4 | Medium 8 | Low 6

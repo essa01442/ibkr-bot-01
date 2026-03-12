@@ -386,6 +386,7 @@ pub struct TapeMetrics {
     pub buy_limit_support_score: f64,
     pub spread_cents: f64,
     pub is_reversal: bool,
+    pub total_score: f64, // Last calculated tape score
 
     // For Anti-Chase (simplified)
     pub vwap: f64,

@@ -206,9 +206,16 @@ impl TapeEngine {
         // We cannot use get_mut_state directly because we need to update global pnl
         // which requires mutable self.
 
+        let state_tape = {
+            let state = self.symbol_states.entry(symbol).or_default();
+            state.tape.price = tick.price;
+            state.last_trade_price = tick.price; // Simplified for now
+            state.tape.clone()
+        };
+        let new_score = self.calculate_scores(&state_tape).total_score;
+
         let state = self.symbol_states.entry(symbol).or_default();
-        state.tape.price = tick.price;
-        state.last_trade_price = tick.price; // Simplified for now
+        state.tape.total_score = new_score;
 
         // Maintain Ring Buffer History
         let cutoff_ts = ts_src.saturating_sub(RING_BUFFER_WINDOW_SECS * 1_000_000);
@@ -514,7 +521,7 @@ impl TapeEngine {
         Ok(())
     }
 
-    fn get_mut_state(&mut self, symbol: SymbolId) -> &mut SymbolState {
+    pub fn get_mut_state(&mut self, symbol: SymbolId) -> &mut SymbolState {
         self.symbol_states.entry(symbol).or_default()
     }
 

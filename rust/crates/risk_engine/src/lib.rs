@@ -23,6 +23,8 @@ pub mod calendar;
 pub mod exposure;
 pub mod guards;
 pub mod pdt;
+#[cfg(test)]
+mod pdt_tests;
 pub mod session;
 pub mod sizing;
 

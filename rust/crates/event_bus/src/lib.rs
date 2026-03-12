@@ -62,8 +62,8 @@ pub struct SystemChannels {
     pub risk_rx: mpsc::Receiver<Event>,
 
     // FastLoop -> OMS (Order Requests)
-    pub oms_order_tx: mpsc::Sender<OrderRequest>,
-    pub oms_order_rx: mpsc::Receiver<OrderRequest>,
+    pub oms_order_tx: mpsc::Sender<core_types::OmsCommand>,
+    pub oms_order_rx: mpsc::Receiver<core_types::OmsCommand>,
 }
 
 impl SystemChannels {

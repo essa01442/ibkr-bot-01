@@ -11,6 +11,8 @@
 //! - Enforces QoS drop priorities when the internal EventBus is full.
 //! - Monitors Heartbeat (expected every 250ms); >1s silence triggers DataQuality::Degraded.
 
+pub mod cmd_sender;
+
 use core_types::{Event, EventKind};
 use event_bus::EventBus;
 use serde::Deserialize;
@@ -39,7 +41,7 @@ pub enum QosPriority {
 impl QosPriority {
     pub fn from_event(event: &Event) -> Self {
         match event.kind {
-            EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::Reject(_) => {
+            EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::Reject(_) | EventKind::CancelAck(_) | EventKind::CancelReject(_) => {
                 QosPriority::Critical
             }
             EventKind::Tick(_) => QosPriority::High,

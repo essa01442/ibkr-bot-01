@@ -367,6 +367,8 @@ pub use datetime::market_day_boundary;
 #[cfg(test)]
 mod datetime_tests;
 
+pub mod trade_accounting;
+
 pub mod locale;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]

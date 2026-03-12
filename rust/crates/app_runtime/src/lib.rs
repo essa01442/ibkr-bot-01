@@ -294,16 +294,17 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     || (state.qty < 0 && signed_fill_size < 0);
 
                                 if same_side {
-                                    let total_cost = (state.qty as f64 * state.avg_cost)
-                                        + (signed_fill_size as f64 * fill_price);
+                                    state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
+                                        state.qty.abs() as u32, state.avg_cost,
+                                        fill.size, fill_price
+                                    );
                                     state.qty += signed_fill_size;
-                                    state.avg_cost = total_cost / state.qty as f64;
                                 } else {
                                     let close_qty = std::cmp::min(state.qty.abs(), signed_fill_size.abs());
-                                    let signed_close_qty = if state.qty > 0 { -close_qty } else { close_qty };
 
-                                    // trade_pnl computation (logic from risk task)
-                                    let _trade_pnl = (fill_price - state.avg_cost) * (-signed_close_qty as f64);
+                                    let _trade_pnl = core_types::trade_accounting::compute_realized_pnl(
+                                        state.qty, state.avg_cost, &fill
+                                    );
 
                                     // §26.4 Calibration logging
                                     if fill.side == core_types::Side::Ask {
@@ -505,17 +506,15 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             || (state.qty < 0 && signed_fill_size < 0);
 
                         if same_side {
-                            let total_cost = (state.qty as f64 * state.avg_cost)
-                                + (signed_fill_size as f64 * fill_price);
+                            state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
+                                state.qty.abs() as u32, state.avg_cost,
+                                fill.size, fill_price
+                            );
                             state.qty += signed_fill_size;
-                            state.avg_cost = total_cost / state.qty as f64;
                         } else {
-                            let close_qty = std::cmp::min(state.qty.abs(), signed_fill_size.abs());
-                            let signed_close_qty =
-                                if state.qty > 0 { -close_qty } else { close_qty };
-
-                            let trade_pnl =
-                                (fill_price - state.avg_cost) * (-signed_close_qty as f64);
+                            let trade_pnl = core_types::trade_accounting::compute_realized_pnl(
+                                state.qty, state.avg_cost, &fill
+                            );
                             state.realized_pnl += trade_pnl;
                             global_realized_pnl += trade_pnl;
 
@@ -586,10 +585,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap_or(0.0);
                     if pos_after > 0 && entry_cost > 0.0 {
                         let current_price = fill.price;
-                        let gross_per_share = current_price - entry_cost;
-                        let gross_total = gross_per_share * pos_after.abs() as f64;
+                        let gross_total = core_types::trade_accounting::compute_unrealized_pnl(pos_after, entry_cost, current_price);
+
                         let price_move_pct = if entry_cost > 0.0 {
-                            gross_per_share / entry_cost
+                            (current_price - entry_cost) / entry_cost
                         } else {
                             0.0
                         };

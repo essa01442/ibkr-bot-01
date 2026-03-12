@@ -233,7 +233,7 @@ impl TapeEngine {
 
         // Update Unrealized PnL
         if state.position != 0 {
-            let new_unrealized = (tick.price - state.avg_cost) * state.position as f64;
+            let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(state.position, state.avg_cost, tick.price);
             let delta = new_unrealized - state.current_unrealized_pnl;
             state.current_unrealized_pnl = new_unrealized;
 
@@ -276,23 +276,15 @@ impl TapeEngine {
                 || (state.position < 0 && signed_fill_size < 0);
 
             if same_side {
-                // Weighted Average Cost
-                let total_cost = (state.position as f64 * state.avg_cost)
-                    + (signed_fill_size as f64 * fill_price);
+                state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
+                    state.position.abs() as u32, state.avg_cost,
+                    fill.size as u32, fill_price
+                );
                 state.position += signed_fill_size;
-                state.avg_cost = total_cost / state.position as f64;
             } else {
-                // Realize PnL
-                // Portion of position closed is min(abs(pos), abs(fill))
-                let close_qty = std::cmp::min(state.position.abs(), signed_fill_size.abs());
-                // The signed amount of closing
-                let signed_close_qty = if state.position > 0 {
-                    -close_qty
-                } else {
-                    close_qty
-                };
-
-                let trade_pnl = (fill_price - state.avg_cost) * (-signed_close_qty as f64);
+                let trade_pnl = core_types::trade_accounting::compute_realized_pnl(
+                    state.position, state.avg_cost, &fill
+                );
                 state.realized_pnl += trade_pnl;
 
                 // Update Global Realized
@@ -319,11 +311,7 @@ impl TapeEngine {
         } else {
             fill_price
         };
-        let new_unrealized = if state.position != 0 {
-            (current_price - state.avg_cost) * state.position as f64
-        } else {
-            0.0
-        };
+        let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(state.position, state.avg_cost, current_price);
 
         let delta_unrealized = new_unrealized - state.current_unrealized_pnl;
         state.current_unrealized_pnl = new_unrealized;

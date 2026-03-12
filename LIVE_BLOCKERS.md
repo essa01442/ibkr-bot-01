@@ -2,6 +2,11 @@
 
 | Unique ID | File:Line | Classification | Phase | Justification |
 | --- | --- | --- | --- | --- |
+| I-01 | `rust/crates/app_runtime/src/lib.rs:197` | Resolved | Execution/Rust | Missing a dedicated command channel to send explicit cancellations from Rust to the Python execution engine, meaning canceled orders remain live on IBKR. |
+| I-02 | `rust/crates/mtf_engine/src/lib.rs:53` | Resolved | Analytics/Rust | The `update_weekly_ema` (and `update_daily_resistance`) functions are never called by the SlowLoop, leaving MTF evaluations incomplete or stuck in default states. |
+| I-03 | `rust/crates/app_runtime/src/lib.rs:401` | Resolved | Risk/Rust | The PDT guard uses a UTC-based `today_ordinal` calculation instead of US Eastern Time, which breaks the T+1 settlement logic and will miscount day trades. |
+| I-04 | `dashboard/index.html:145` | Resolved | UI/Dashboard | The dashboard attempts to render via ReactDOM but the backend only provides a static HTML shell; it is a fake/placeholder dashboard that does not properly initialize React components from a build system. |
+| I-05 | `rust/bins/replayer/src/main.rs:84` | Resolved | Testing/Replayer | The L1 replayer logic contains a 'Placeholder for now' comment instead of actually executing the decision pipeline to generate or compare golden files. |
 | I-01 | `rust/crates/app_runtime/src/lib.rs:197` | Critical | Execution/Rust | Missing a dedicated command channel to send explicit cancellations from Rust to the Python execution engine, meaning canceled orders remain live on IBKR. |
 | I-02 | `rust/crates/mtf_engine/src/lib.rs:53` | Critical | Analytics/Rust | The `update_weekly_ema` (and `update_daily_resistance`) functions are never called by the SlowLoop, leaving MTF evaluations incomplete or stuck in default states. |
 | I-03 | `rust/crates/app_runtime/src/lib.rs:401` | Critical | Risk/Rust | The PDT guard uses a UTC-based `today_ordinal` calculation instead of US Eastern Time, which breaks the T+1 settlement logic and will miscount day trades. |
@@ -26,4 +31,5 @@
 | I-22 | `rust/crates/tape_engine/src/lib.rs:159` | Low | Analytics/Rust | The code contains 'for now' comments calculating ordinal times or simplifying state that need refactoring before finalizing 1.0 architecture. |
 | I-23 | `dashboard/index.html:9` | Low | UI/Dashboard | The UI relies on in-browser Babel compilation via a CDN for React JSX, slowing down dashboard load times and risking failure on internet outages. |
 
+**TOTAL:** Critical 0 | High 4 | Medium 8 | Low 6 | Resolved 5
 **TOTAL:** Critical 5 | High 4 | Medium 8 | Low 6

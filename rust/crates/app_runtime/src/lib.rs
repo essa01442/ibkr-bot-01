@@ -693,6 +693,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 );
                             }
                             match watchlist.promote(event.symbol_id, &mut Some(&mut metrics_collector)) {
+                            let mut local_metrics = metrics_observability::MetricsCollector::default();
+                            match watchlist.promote(event.symbol_id, &mut Some(&mut local_metrics)) {
                                 Ok(()) => {
                                     subscription_count += 1;
                                     log::info!(
@@ -798,12 +800,14 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // Process Symbol Lifecycle periodically on Heartbeat
+                    let mut local_metrics = metrics_observability::MetricsCollector::default();
                     watchlist.process_lifecycle(
                         config.watchlist.demotion_cycles,
                         config.watchlist.eviction_cycles,
                         config.watchlist.min_quality_score,
                         config.watchlist.min_volume,
                         &mut metrics_collector,
+                        &mut local_metrics,
                     );
                 }
                 _ => {}

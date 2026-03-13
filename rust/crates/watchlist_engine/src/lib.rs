@@ -40,6 +40,11 @@ pub struct TierData {
     pub ticks_in_warm_state: u64,
     pub daily_context: Option<DailyContext>,
     pub mtf_analysis: Option<MtfAnalysis>,
+
+    // Lifecycle properties
+    pub inactive_cycles: u32,
+    pub quality_score: f64,
+    pub volume: u64,
 }
 
 impl TierData {
@@ -53,6 +58,9 @@ impl TierData {
             ticks_in_warm_state: 0,
             daily_context: None,
             mtf_analysis: None,
+            inactive_cycles: 0,
+            quality_score: 0.0,
+            volume: 0,
         }
     }
 
@@ -94,6 +102,7 @@ pub struct Watchlist {
     pub tier_b: HashMap<SymbolId, TierData>,
     pub tier_c: HashMap<SymbolId, TierData>,
     pub current_regime: RegimeState,
+    pub recently_evicted: HashMap<SymbolId, u32>, // symbol_id -> remaining cooldown cycles
 }
 
 impl Default for Watchlist {
@@ -109,6 +118,7 @@ impl Watchlist {
             tier_b: HashMap::new(),
             tier_c: HashMap::new(),
             current_regime: RegimeState::Normal,
+            recently_evicted: HashMap::new(),
         }
     }
 
@@ -195,12 +205,29 @@ impl Watchlist {
         None
     }
 
-    pub fn add_candidate(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
+    pub fn add_candidate(&mut self, symbol_id: SymbolId, eviction_cycles: u32, metrics: &mut metrics_observability::MetricsCollector) -> Result<(), &'static str> {
+        if self.recently_evicted.contains_key(&symbol_id) {
+            return Err("Recently evicted, cannot re-promote yet");
+        }
         if self.get_tier(symbol_id).is_some() {
             return Err("Already in watchlist");
         }
+
         if self.tier_c.len() >= MAX_TIER_C {
-            return Err("Tier C full");
+            // FIFO fairness — oldest cold symbol evicted first
+            let mut oldest: Option<(SymbolId, u64)> = None;
+            for (id, data) in &self.tier_c {
+                if oldest.is_none() || data.last_activity < oldest.unwrap().1 {
+                    oldest = Some((*id, data.last_activity));
+                }
+            }
+            if let Some((oldest_id, _)) = oldest {
+                self.tier_c.remove(&oldest_id);
+                self.recently_evicted.insert(oldest_id, eviction_cycles); // use eviction_cycles for cooldown
+                metrics.symbols_evicted += 1;
+            } else {
+                return Err("Tier C full and no cold symbols to evict");
+            }
         }
 
         // Candidates start in Tier C
@@ -208,10 +235,10 @@ impl Watchlist {
         Ok(())
     }
 
-    pub fn promote(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
+    pub fn promote(&mut self, symbol_id: SymbolId, metrics: &mut Option<&mut metrics_observability::MetricsCollector>) -> Result<(), &'static str> {
         let current_tier = self.get_tier(symbol_id).ok_or("Symbol not in watchlist")?;
 
-        match current_tier {
+        let res = match current_tier {
             Tier::C => {
                 // C -> B
                 if self.tier_b.len() >= MAX_TIER_B {
@@ -235,6 +262,7 @@ impl Watchlist {
                 data.tier = Tier::B;
                 data.subscription_status = SubscriptionStatus::Pending;
                 self.tier_b.insert(symbol_id, data);
+                Ok(())
             }
             Tier::B => {
                 // B -> A
@@ -257,10 +285,17 @@ impl Watchlist {
 
                 data.tier = Tier::A;
                 self.tier_a.insert(symbol_id, data);
+                Ok(())
             }
-            Tier::A => return Err("Already in Tier A"),
+            Tier::A => Err("Already in Tier A"),
+        };
+
+        if res.is_ok() {
+            if let Some(m) = metrics {
+                m.symbols_promoted += 1;
+            }
         }
-        Ok(())
+        res
     }
 
     pub fn demote(&mut self, symbol_id: SymbolId) -> Result<(), &'static str> {
@@ -291,9 +326,75 @@ impl Watchlist {
         Ok(())
     }
 
+    pub fn process_lifecycle(
+        &mut self,
+        demotion_cycles: u32,
+        eviction_cycles: u32,
+        min_quality_score: f64,
+        min_volume: u64,
+        metrics: &mut metrics_observability::MetricsCollector,
+    ) {
+        // Increment inactive cycles for all symbols
+        for data in self.tier_a.values_mut().chain(self.tier_b.values_mut()).chain(self.tier_c.values_mut()) {
+            data.inactive_cycles += 1;
+        }
+
+        // Cooldown processing
+        self.recently_evicted.retain(|_, cycles| {
+            if *cycles > 0 {
+                *cycles -= 1;
+            }
+            *cycles > 0
+        });
+
+        // Demotion/Eviction tracking
+        let mut to_demote = Vec::new();
+        let mut to_evict = Vec::new();
+
+        let check_demotion = |_id: &SymbolId, d: &TierData| -> bool {
+            d.quality_score < min_quality_score || d.volume < min_volume || d.inactive_cycles >= demotion_cycles
+        };
+        let check_eviction = |_id: &SymbolId, d: &TierData| -> bool {
+            d.inactive_cycles >= eviction_cycles
+        };
+
+        for (id, data) in &self.tier_a {
+            if check_demotion(id, data) {
+                to_demote.push(*id);
+            }
+        }
+        for (id, data) in &self.tier_b {
+            if check_demotion(id, data) {
+                to_demote.push(*id);
+            }
+        }
+        for (id, data) in &self.tier_c {
+            if check_eviction(id, data) {
+                to_evict.push(*id);
+            }
+        }
+
+        for id in to_demote {
+            if let Ok(_) = self.demote(id) {
+                metrics.symbols_demoted += 1;
+            }
+        }
+
+        for id in to_evict {
+            self.tier_c.remove(&id);
+            self.recently_evicted.insert(id, eviction_cycles); // add to cooldown
+            metrics.symbols_evicted += 1;
+        }
+
+        metrics.cold_symbol_count = self.tier_c.len() as u64;
+        metrics.current_count = (self.tier_c.len() + self.tier_b.len() + self.tier_a.len()) as u64;
+        metrics.budget = (MAX_TIER_A + MAX_TIER_B + MAX_TIER_C) as u64;
+    }
+
     pub fn update_tick_count(&mut self, symbol_id: SymbolId) {
         if let Some(data) = self.get_data_mut(symbol_id) {
             data.tick_count += 1;
+            data.inactive_cycles = 0; // reset inactive cycles on tick update
         }
     }
 
@@ -324,13 +425,14 @@ mod tests {
     #[test]
     fn test_promotion_path() {
         let mut wl = Watchlist::new();
+        let mut metrics = metrics_observability::MetricsCollector::default();
         let sym = SymbolId(1);
 
-        wl.add_candidate(sym).unwrap();
+        wl.add_candidate(sym, 5, &mut metrics).unwrap();
         assert_eq!(wl.get_tier(sym), Some(Tier::C));
 
         // Try promote without ticks
-        assert!(wl.promote(sym).is_err());
+        assert!(wl.promote(sym, &mut Some(&mut metrics)).is_err());
 
         // Add ticks
         for _ in 0..TICK_READY_THRESHOLD {
@@ -338,30 +440,31 @@ mod tests {
         }
 
         // Promote C -> B
-        wl.promote(sym).unwrap();
+        wl.promote(sym, &mut Some(&mut metrics)).unwrap();
         assert_eq!(wl.get_tier(sym), Some(Tier::B));
 
         // Promote B -> A
-        wl.promote(sym).unwrap();
+        wl.promote(sym, &mut Some(&mut metrics)).unwrap();
         assert_eq!(wl.get_tier(sym), Some(Tier::A));
 
         // Promote A -> Error
-        assert!(wl.promote(sym).is_err());
+        assert!(wl.promote(sym, &mut Some(&mut metrics)).is_err());
     }
 
     #[test]
     fn test_demotion_path() {
         let mut wl = Watchlist::new();
+        let mut metrics = metrics_observability::MetricsCollector::default();
         let sym = SymbolId(1);
 
-        wl.add_candidate(sym).unwrap();
+        wl.add_candidate(sym, 5, &mut metrics).unwrap();
         // Fake ticks
         if let Some(d) = wl.get_data_mut(sym) {
             d.tick_count = 100;
         }
 
-        wl.promote(sym).unwrap(); // B
-        wl.promote(sym).unwrap(); // A
+        wl.promote(sym, &mut Some(&mut metrics)).unwrap(); // B
+        wl.promote(sym, &mut Some(&mut metrics)).unwrap(); // A
 
         wl.demote(sym).unwrap(); // B
         assert_eq!(wl.get_tier(sym), Some(Tier::B));
@@ -376,24 +479,25 @@ mod tests {
     #[test]
     fn test_subscription_limits() {
         let mut wl = Watchlist::new();
+        let mut metrics = metrics_observability::MetricsCollector::default();
         // Fill up subscriptions
         for i in 0..MAX_TOTAL_SUBSCRIPTIONS {
             let sym = SymbolId(i as u32);
-            wl.add_candidate(sym).unwrap();
+            wl.add_candidate(sym, 5, &mut metrics).unwrap();
             if let Some(d) = wl.get_data_mut(sym) {
                 d.tick_count = 100;
             }
-            wl.promote(sym).unwrap(); // To Tier B
+            wl.promote(sym, &mut Some(&mut metrics)).unwrap(); // To Tier B
         }
 
         let extra = SymbolId(1000);
-        wl.add_candidate(extra).unwrap();
+        wl.add_candidate(extra, 5, &mut metrics).unwrap();
         if let Some(d) = wl.get_data_mut(extra) {
             d.tick_count = 100;
         }
 
         // Should fail
-        assert!(wl.promote(extra).is_err());
+        assert!(wl.promote(extra, &mut Some(&mut metrics)).is_err());
     }
 
     #[test]
@@ -422,5 +526,111 @@ mod tests {
         data.update_cold_start(true);
         assert_eq!(data.cold_start_state, ColdStartState::FullActive);
         assert_eq!(data.acceleration_weight(), 1.0);
+    }
+
+    #[test]
+    fn test_saturation_and_eviction() {
+        let mut wl = Watchlist::new();
+        let mut metrics = metrics_observability::MetricsCollector::default();
+        let eviction_cycles = 5;
+
+        // Fill Tier C budget
+        for i in 0..MAX_TIER_C {
+            let sym = SymbolId(i as u32);
+            wl.add_candidate(sym, eviction_cycles, &mut metrics).unwrap();
+            wl.touch(sym, i as u64); // Different timestamps to distinguish oldest
+        }
+
+        assert_eq!(wl.tier_c.len(), MAX_TIER_C);
+
+        // Add one more, should evict the oldest (SymbolId(0) with timestamp 0)
+        let sym_new = SymbolId(MAX_TIER_C as u32);
+        wl.add_candidate(sym_new, eviction_cycles, &mut metrics).unwrap();
+
+        assert_eq!(wl.tier_c.len(), MAX_TIER_C);
+        assert!(!wl.tier_c.contains_key(&SymbolId(0))); // Oldest was evicted
+        assert!(wl.tier_c.contains_key(&sym_new));
+        assert_eq!(metrics.symbols_evicted, 1);
+    }
+
+    #[test]
+    fn test_churn_prevention() {
+        let mut wl = Watchlist::new();
+        let mut metrics = metrics_observability::MetricsCollector::default();
+        let eviction_cycles = 5;
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym, eviction_cycles, &mut metrics).unwrap();
+
+        // Artificially evict and add to cooldown
+        wl.tier_c.remove(&sym);
+        wl.recently_evicted.insert(sym, 3); // 3 cycles cooldown
+
+        // Cannot re-promote immediately
+        assert!(wl.add_candidate(sym, eviction_cycles, &mut metrics).is_err());
+
+        // Process 3 cycles to clear cooldown
+        for _ in 0..3 {
+            wl.process_lifecycle(3, eviction_cycles, 45.0, 500000, &mut metrics);
+        }
+
+        // Verify it was removed from recently_evicted
+        assert!(!wl.recently_evicted.contains_key(&sym));
+
+        // Now we can promote
+        assert!(wl.add_candidate(sym, eviction_cycles, &mut metrics).is_ok());
+    }
+
+    #[test]
+    fn test_cold_timeout_eviction() {
+        let mut wl = Watchlist::new();
+        let mut metrics = metrics_observability::MetricsCollector::default();
+        let demotion_cycles = 3;
+        let eviction_cycles = 5;
+        let sym = SymbolId(1);
+
+        wl.add_candidate(sym, eviction_cycles, &mut metrics).unwrap();
+
+        // Process lifecycle for less than eviction cycles
+        for _ in 0..4 {
+            wl.process_lifecycle(demotion_cycles, eviction_cycles, 45.0, 500000, &mut metrics);
+        }
+
+        // Still there
+        assert!(wl.tier_c.contains_key(&sym));
+
+        // One more cycle -> eviction
+        wl.process_lifecycle(demotion_cycles, eviction_cycles, 45.0, 500000, &mut metrics);
+
+        assert!(!wl.tier_c.contains_key(&sym));
+        assert_eq!(metrics.symbols_evicted, 1);
+
+        // Should be in recently_evicted cooldown
+        assert!(wl.recently_evicted.contains_key(&sym));
+    }
+
+    #[test]
+    fn test_fifo_fairness() {
+        let mut wl = Watchlist::new();
+        let mut metrics = metrics_observability::MetricsCollector::default();
+        let eviction_cycles = 5;
+
+        // Fill Tier C budget
+        for i in 0..MAX_TIER_C {
+            let sym = SymbolId(i as u32);
+            wl.add_candidate(sym, eviction_cycles, &mut metrics).unwrap();
+
+            // Set arbitrary timestamps: oldest is i = 10 (timestamp 1)
+            let ts = if i == 10 { 1 } else { (i + 100) as u64 };
+            wl.touch(sym, ts);
+        }
+
+        // The oldest symbol is SymbolId(10) with timestamp 1
+        let sym_new = SymbolId(9999);
+        wl.add_candidate(sym_new, eviction_cycles, &mut metrics).unwrap();
+
+        assert!(!wl.tier_c.contains_key(&SymbolId(10)));
+        assert!(wl.tier_c.contains_key(&sym_new));
+        assert_eq!(metrics.symbols_evicted, 1);
     }
 }

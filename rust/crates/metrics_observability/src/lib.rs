@@ -317,6 +317,14 @@ pub struct MetricsCollector {
     pub data_quality_events: u64,
     pub ibkr_subscription_count: u32,
     pub sla_breach_count: u64,
+
+    // Watchlist Lifecycle Metrics
+    pub symbols_promoted: u64,
+    pub symbols_demoted: u64,
+    pub symbols_evicted: u64,
+    pub cold_symbol_count: u64,
+    pub current_count: u64,
+    pub budget: u64,
 }
 
 impl MetricsCollector {

@@ -13,6 +13,15 @@ pub struct AppConfig {
     pub context: ContextConfig,
     pub mtf: MtfConfig,
     pub correlation: CorrelationConfig,
+    pub watchlist: WatchlistConfig,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct WatchlistConfig {
+    pub demotion_cycles: u32,
+    pub eviction_cycles: u32,
+    pub min_quality_score: f64,
+    pub min_volume: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -201,6 +210,12 @@ stale_data_threshold_ms = 3600000
 
 [correlation]
 threshold = 0.40
+
+[watchlist]
+demotion_cycles = 3
+eviction_cycles = 5
+min_quality_score = 45.0
+min_volume = 500000
 "#;
         let config: AppConfig = toml::from_str(toml_str).expect("config must parse");
 
@@ -219,6 +234,10 @@ threshold = 0.40
         assert_eq!(config.correlation.threshold, 0.40);
         assert_eq!(config.context.churn_window_minutes, 10);
         assert_eq!(config.context.snap_min_trade_count, 5);
+        assert_eq!(config.watchlist.demotion_cycles, 3);
+        assert_eq!(config.watchlist.eviction_cycles, 5);
+        assert_eq!(config.watchlist.min_quality_score, 45.0);
+        assert_eq!(config.watchlist.min_volume, 500000);
     }
 
     #[test]

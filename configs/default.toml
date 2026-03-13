@@ -73,3 +73,9 @@ stale_data_threshold_ms = 3600000    # 1 hour in milliseconds
 
 [correlation]
 threshold              = 0.40        # Pearson correlation → reject second position (§17.1)
+
+[watchlist]
+demotion_cycles = 3
+eviction_cycles = 5
+min_quality_score = 45.0
+min_volume = 500000

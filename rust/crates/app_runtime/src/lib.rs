@@ -229,30 +229,6 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 // Already canceling, do not resend IPC
                             }
                             Err(_) => {}
-                        if let Ok(_) = oms.cancel_order(*order_id, now) {
-                            log::warn!("Order {} timed out after 30s — marked PendingCancel locally. \
-                                        Sending to Python bridge.", order_id);
-
-                            let cancel_req = core_types::OmsCommand::CancelOrder(core_types::CancelRequest {
-                                order_id: *order_id,
-                            });
-
-                            #[cfg(not(feature = "paper_mode"))]
-                            {
-                                if let Some(sender) = &cmd_sender {
-                                    if let Err(e) = sender.send_command(&cancel_req) {
-                                        log::error!("Failed to send timeout cancel command to bridge: {}", e);
-                                    } else {
-                                        oms.mark_cancel_sent(*order_id, now);
-                                    }
-                                }
-                            }
-
-                            #[cfg(feature = "paper_mode")]
-                            {
-                                log::info!("PAPER ORDER [NOT SENT]: TIMEOUT CANCEL request for order_id={}", order_id);
-                                oms.mark_cancel_sent(*order_id, now);
-                            }
                         }
                     }
                     if !timeouts.is_empty() {
@@ -432,29 +408,6 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 Ok(false) => {
                                     log::info!("OMS cancel already in progress for order {}", request.order_id);
-                            if let Err(e) = oms.cancel_order(request.order_id, now) {
-                                log::error!("OMS rejected cancel: {}", e);
-                            } else {
-                                log::info!("OMS initiated cancel for order {}", request.order_id);
-
-                                // Forward command to Python Bridge
-                                #[cfg(not(feature = "paper_mode"))]
-                                {
-                                    if let Some(sender) = &cmd_sender {
-                                        if let Err(e) = sender.send_command(&command) {
-                                            log::error!("Failed to send cancel command to bridge: {}", e);
-                                        } else {
-                                            oms.mark_cancel_sent(request.order_id, now);
-                                        }
-                                    } else {
-                                        log::error!("BridgeCmdSender not initialized for cancel command");
-                                    }
-                                }
-
-                                #[cfg(feature = "paper_mode")]
-                                {
-                                    log::info!("PAPER ORDER [NOT SENT]: CANCEL request for order_id={}", request.order_id);
-                                    oms.mark_cancel_sent(request.order_id, now);
                                 }
                             }
                         }
@@ -737,7 +690,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     (subscription_count * 100 / sub_limit)
                                 );
                             }
-                            match watchlist.promote(event.symbol_id) {
+                            let mut local_metrics = metrics_observability::MetricsCollector::default();
+                            match watchlist.promote(event.symbol_id, &mut Some(&mut local_metrics)) {
                                 Ok(()) => {
                                     subscription_count += 1;
                                     log::info!(
@@ -841,6 +795,16 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             guard.monitor_only = true;
                         }
                     }
+
+                    // Process Symbol Lifecycle periodically on Heartbeat
+                    let mut local_metrics = metrics_observability::MetricsCollector::default();
+                    watchlist.process_lifecycle(
+                        config.watchlist.demotion_cycles,
+                        config.watchlist.eviction_cycles,
+                        config.watchlist.min_quality_score,
+                        config.watchlist.min_volume,
+                        &mut local_metrics,
+                    );
                 }
                 _ => {}
             }

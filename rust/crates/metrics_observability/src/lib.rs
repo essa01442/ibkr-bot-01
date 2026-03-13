@@ -393,14 +393,39 @@ pub struct CalibrationLogger {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CalibrationField {
+    Real(f64),
+    Unavailable { reason: String },
+}
+
+impl CalibrationField {
+    pub fn new_real(val: f64) -> Result<Self, &'static str> {
+        if val == 0.0 {
+            return Err("predicted_slippage cannot be 0.0 for non-zero expected price");
+        }
+        Ok(Self::Real(val))
+    }
+
+    pub fn new_unavailable(reason: &str) -> Result<Self, &'static str> {
+        if reason.trim().is_empty() {
+            return Err("Unavailable reason cannot be empty");
+        }
+        Ok(Self::Unavailable { reason: reason.to_string() })
+    }
+}
+
+#[cfg(test)]
+mod calibration_tests;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlippageRecord {
     pub symbol_id: u32,
     pub ts: u64,
     pub shares: u32,
     pub entry_price: f64,
-    pub predicted_slippage: f64,
+    pub predicted_slippage: CalibrationField,
     pub actual_slippage: f64,
-    pub ratio: f64,  // actual / predicted
+    pub ratio: Option<f64>,  // actual / predicted
 }
 
 impl CalibrationLogger {
@@ -409,8 +434,12 @@ impl CalibrationLogger {
     }
 
     pub fn record(&mut self, symbol_id: u32, ts: u64, shares: u32, entry_price: f64,
-                  predicted: f64, actual: f64) {
-        let ratio = if predicted > 0.0 { actual / predicted } else { 0.0 };
+                  predicted: CalibrationField, actual: f64) {
+        let ratio = match &predicted {
+            CalibrationField::Real(p) => Some(actual / p),
+            CalibrationField::Unavailable { .. } => None,
+        };
+
         self.records.push(SlippageRecord {
             symbol_id, ts, shares, entry_price,
             predicted_slippage: predicted,
@@ -422,9 +451,11 @@ impl CalibrationLogger {
     /// Returns Some(avg_ratio) if we have enough data, None otherwise.
     /// Per §26.4: if avg_ratio > 1.5 → update α/β.
     pub fn evaluate(&self) -> Option<f64> {
-        if self.records.len() < self.min_trades_for_eval { return None; }
-        let avg = self.records.iter().map(|r| r.ratio).sum::<f64>() / self.records.len() as f64;
-        Some(avg)
+        let valid_records: Vec<&SlippageRecord> = self.records.iter().filter(|r| r.ratio.is_some()).collect();
+        if valid_records.len() < self.min_trades_for_eval { return None; }
+
+        let sum: f64 = valid_records.iter().map(|r| r.ratio.unwrap()).sum();
+        Some(sum / valid_records.len() as f64)
     }
 
     /// Per §26.4: checks if calibration threshold is breached.

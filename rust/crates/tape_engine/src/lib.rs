@@ -151,14 +151,7 @@ impl TapeEngine {
 
         match event.kind {
             EventKind::Tick(tick) => {
-                // Convert ts_src (micros) to day ordinal roughly
-                // This assumes ts_src is system time or close to it.
-                // For now, we will pass 0 or compute it if needed in check_entry.
-                // Actually, tape_engine doesn't know "today".
-                // We should pass today_ordinal into on_event or TapeEngine::new?
-                // Let's compute it from ts_src for now, assuming ts_src is unix epoch micros
-                let secs = event.ts_src / 1_000_000;
-                let days = (secs / 86400) as u32; // Rough approximation (UTC)
+                let days = core_types::market_day_boundary(event.ts_src);
                 self.process_tick(event.symbol_id, event.ts_src, tick, days)
             }
             EventKind::Snapshot(snap) => {
@@ -213,9 +206,16 @@ impl TapeEngine {
         // We cannot use get_mut_state directly because we need to update global pnl
         // which requires mutable self.
 
+        let state_tape = {
+            let state = self.symbol_states.entry(symbol).or_default();
+            state.tape.price = tick.price;
+            state.last_trade_price = tick.price; // Simplified for now
+            state.tape.clone()
+        };
+        let new_score = self.calculate_scores(&state_tape).total_score;
+
         let state = self.symbol_states.entry(symbol).or_default();
-        state.tape.price = tick.price;
-        state.last_trade_price = tick.price; // Simplified for now
+        state.tape.total_score = new_score;
 
         // Maintain Ring Buffer History
         let cutoff_ts = ts_src.saturating_sub(RING_BUFFER_WINDOW_SECS * 1_000_000);
@@ -233,7 +233,7 @@ impl TapeEngine {
 
         // Update Unrealized PnL
         if state.position != 0 {
-            let new_unrealized = (tick.price - state.avg_cost) * state.position as f64;
+            let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(state.position, state.avg_cost, tick.price);
             let delta = new_unrealized - state.current_unrealized_pnl;
             state.current_unrealized_pnl = new_unrealized;
 
@@ -276,23 +276,15 @@ impl TapeEngine {
                 || (state.position < 0 && signed_fill_size < 0);
 
             if same_side {
-                // Weighted Average Cost
-                let total_cost = (state.position as f64 * state.avg_cost)
-                    + (signed_fill_size as f64 * fill_price);
+                state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
+                    state.position.abs() as u32, state.avg_cost,
+                    fill.size as u32, fill_price
+                );
                 state.position += signed_fill_size;
-                state.avg_cost = total_cost / state.position as f64;
             } else {
-                // Realize PnL
-                // Portion of position closed is min(abs(pos), abs(fill))
-                let close_qty = std::cmp::min(state.position.abs(), signed_fill_size.abs());
-                // The signed amount of closing
-                let signed_close_qty = if state.position > 0 {
-                    -close_qty
-                } else {
-                    close_qty
-                };
-
-                let trade_pnl = (fill_price - state.avg_cost) * (-signed_close_qty as f64);
+                let trade_pnl = core_types::trade_accounting::compute_realized_pnl(
+                    state.position, state.avg_cost, &fill
+                );
                 state.realized_pnl += trade_pnl;
 
                 // Update Global Realized
@@ -319,11 +311,7 @@ impl TapeEngine {
         } else {
             fill_price
         };
-        let new_unrealized = if state.position != 0 {
-            (current_price - state.avg_cost) * state.position as f64
-        } else {
-            0.0
-        };
+        let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(state.position, state.avg_cost, current_price);
 
         let delta_unrealized = new_unrealized - state.current_unrealized_pnl;
         state.current_unrealized_pnl = new_unrealized;
@@ -521,7 +509,7 @@ impl TapeEngine {
         Ok(())
     }
 
-    fn get_mut_state(&mut self, symbol: SymbolId) -> &mut SymbolState {
+    pub fn get_mut_state(&mut self, symbol: SymbolId) -> &mut SymbolState {
         self.symbol_states.entry(symbol).or_default()
     }
 

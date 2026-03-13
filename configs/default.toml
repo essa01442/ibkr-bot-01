@@ -23,6 +23,9 @@ w_spr = 0.13
 w_abs = 0.08
 w_bls = 0.05
 
+[execution]
+cancel_timeout_ms = 5000
+
 [pricing]
 k_atr                  = 2.0         # ATR multiplier for StopDistance (§16.1)
 min_stop_pct           = 0.012       # 1.2% of price as MinStopDistance floor (§16.1)
@@ -63,6 +66,10 @@ sector_momentum_min_pct = 2.0        # Sector ETF must move ≥ 2% (§9.2)
 churn_window_minutes   = 10          # Churning detection window (§9.1)
 churn_max_move_pct     = 0.01        # High–Low < 1% in window → Churning (§9.1)
 snap_min_trade_count   = 5           # Minimum trades in snap_count_20s for Tier A upgrade (§12.4)
+
+[mtf]
+require_all            = true
+stale_data_threshold_ms = 3600000    # 1 hour in milliseconds
 
 [correlation]
 threshold              = 0.40        # Pearson correlation → reject second position (§17.1)

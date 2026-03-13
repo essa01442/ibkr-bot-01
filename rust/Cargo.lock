@@ -329,7 +329,9 @@ dependencies = [
  "arrayvec",
  "chrono",
  "chrono-tz",
+ "rmp-serde",
  "serde",
+ "serde_json",
  "thiserror",
  "toml",
 ]
@@ -1971,6 +1973,7 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "core_types",
+ "metrics_observability",
  "serde",
 ]
 

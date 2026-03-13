@@ -371,6 +371,9 @@ pub mod trade_accounting;
 
 pub mod locale;
 
+#[cfg(test)]
+mod ipc_tests;
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct TapeMetrics {
     pub price: f64,

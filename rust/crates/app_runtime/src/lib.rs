@@ -656,6 +656,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         let sub_limit = config.ibkr.subscription_budget;
         let sub_warn_threshold = (sub_limit as f64 * config.ibkr.subscription_warn_pct) as u32;
 
+        let mut metrics_collector = metrics_observability::MetricsCollector::default();
+
         loop {
             tokio::select! {
                 _ = shutdown_token_slow.cancelled() => {
@@ -690,6 +692,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     (subscription_count * 100 / sub_limit)
                                 );
                             }
+                            match watchlist.promote(event.symbol_id, &mut Some(&mut metrics_collector)) {
                             let mut local_metrics = metrics_observability::MetricsCollector::default();
                             match watchlist.promote(event.symbol_id, &mut Some(&mut local_metrics)) {
                                 Ok(()) => {
@@ -803,6 +806,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         config.watchlist.eviction_cycles,
                         config.watchlist.min_quality_score,
                         config.watchlist.min_volume,
+                        &mut metrics_collector,
                         &mut local_metrics,
                     );
                 }

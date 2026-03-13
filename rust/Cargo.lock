@@ -329,6 +329,7 @@ dependencies = [
  "arrayvec",
  "chrono",
  "chrono-tz",
+ "rmp-serde",
  "serde",
  "thiserror",
  "toml",

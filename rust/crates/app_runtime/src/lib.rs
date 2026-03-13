@@ -321,7 +321,9 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                             event.ts_src,
                                             close_qty.unsigned_abs() as u32,
                                             avg_cost,
-                                            0.0, // predicted: populated from TradeJournal in full impl
+                                            metrics_observability::CalibrationField::Unavailable {
+                                                reason: "Real expected_price currently isolated in TradeJournal mapping; deferring computation.".to_string()
+                                            },
                                             actual_slip,
                                         );
                                         if calib_logger.needs_recalibration() {

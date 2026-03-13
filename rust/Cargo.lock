@@ -331,6 +331,7 @@ dependencies = [
  "chrono-tz",
  "rmp-serde",
  "serde",
+ "serde_json",
  "thiserror",
  "toml",
 ]

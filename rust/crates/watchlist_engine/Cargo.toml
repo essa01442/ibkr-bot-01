@@ -7,3 +7,4 @@ edition = "2021"
 core_types = { path = "../core_types" }
 arc-swap = "1.6"
 serde = { workspace = true }
+metrics_observability = { path = "../metrics_observability" }

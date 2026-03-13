@@ -4,9 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Robust Penny Scalper v7.0</title>
-  <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
   <style>
     :root {
       --bg: #0b1220; --panel: rgba(255,255,255,.04); --text: #e6edf6;
@@ -19,6 +16,7 @@
     .card { background: var(--panel); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 16px; }
     .card-title { font-size: 11px; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; letter-spacing: 1px; }
     .card-value { font-size: 28px; font-weight: bold; }
+    .card-extra { font-size: 12px; color: var(--muted); margin-top: 4px; }
     .ok { color: var(--ok); } .warn { color: var(--warn); } .danger { color: var(--danger); } .accent { color: var(--accent); }
     .monitor-banner { background: rgba(251,185,36,.12); border: 2px solid var(--warn); border-radius: 12px; padding: 16px; text-align: center; font-size: 18px; font-weight: bold; color: var(--warn); margin-bottom: 16px; display: none; }
     .monitor-banner.active { display: block; animation: pulse 1s infinite; }
@@ -31,118 +29,230 @@
     .status-dot.warn { background: var(--warn); }
     .status-dot.danger { background: var(--danger); }
     .ws-status { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
   </style>
 </head>
 <body>
-  <div id="root"></div>
-  <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+  <div id="root">
+    <div class="header-row">
+      <h1>⬡ Robust Penny Scalper v7.0</h1>
+      <div class="ws-status" id="ws-status-container">
+        <span class="status-dot danger" id="ws-status-dot"></span>
+        <span id="ws-status-text"> منقطع</span>
+      </div>
+    </div>
 
-    function StatusDot({ state }) {
-      const cls = state === 'Normal' || state === 'OK' || state === 'ok' ? 'ok'
-                : state === 'Caution' || state === 'Degraded' ? 'warn' : 'danger';
-      return <span className={`status-dot ${cls}`}></span>;
+    <div id="loading-message" style="color:var(--muted)">في انتظار البيانات...</div>
+
+    <div id="dashboard-content" style="display: none;">
+      <div id="monitor-banner" class="monitor-banner">
+        ⚠️ وضع المراقبة فقط — لا صفقات جديدة — <span id="monitor-reason"></span>
+      </div>
+
+      <div class="grid">
+        <!-- Card 1: Regime -->
+        <div class="card">
+          <div class="card-title">الوضع السوقي</div>
+          <div class="card-value" id="val-regime">-</div>
+          <div class="card-extra"><span class="status-dot ok" id="dot-regime"></span> <span id="extra-session">-</span></div>
+        </div>
+        <!-- Card 2: Daily PnL -->
+        <div class="card">
+          <div class="card-title">ربح اليوم</div>
+          <div class="card-value" id="val-pnl">-</div>
+          <div class="card-extra" id="extra-pnl">-</div>
+        </div>
+        <!-- Card 3: P95 Latency -->
+        <div class="card">
+          <div class="card-title">كمون P95</div>
+          <div class="card-value" id="val-latency">-</div>
+        </div>
+        <!-- Card 4: Open Positions -->
+        <div class="card">
+          <div class="card-title">المراكز المفتوحة</div>
+          <div class="card-value accent" id="val-positions">-</div>
+        </div>
+        <!-- Card 5: Data Quality -->
+        <div class="card">
+          <div class="card-title">جودة البيانات</div>
+          <div class="card-value" id="val-quality">-</div>
+        </div>
+        <!-- Card 6: OMS State -->
+        <div class="card">
+          <div class="card-title">حالة OMS</div>
+          <div class="card-value" id="val-oms">-</div>
+        </div>
+        <!-- Card 7: IBKR Subs -->
+        <div class="card">
+          <div class="card-title">اشتراكات IBKR</div>
+          <div class="card-value" id="val-subs">-</div>
+        </div>
+        <!-- Card 8: Loss Ladder -->
+        <div class="card">
+          <div class="card-title">مستوى سلم الخسائر</div>
+          <div class="card-value" id="val-ladder">-</div>
+        </div>
+      </div>
+
+      <div class="card" id="alerts-card" style="margin-bottom:12px; display:none;">
+        <div class="card-title">⚠️ التنبيهات الأخيرة</div>
+        <ul class="alert-list" id="alerts-list"></ul>
+      </div>
+
+      <div class="card" id="rejects-card" style="display:none;">
+        <div class="card-title">آخر رفضيات القرار</div>
+        <div style="font-size:13px; color:var(--muted)" id="rejects-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Utility functions for class management
+    function setClass(elementId, baseClasses, dynamicClass) {
+      const el = document.getElementById(elementId);
+      if (el) el.className = `${baseClasses} ${dynamicClass}`;
     }
 
-    function Card({ title, value, cls, extra }) {
-      return (
-        <div className="card">
-          <div className="card-title">{title}</div>
-          <div className={`card-value ${cls || ''}`}>{value}</div>
-          {extra && <div style={{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}}>{extra}</div>}
-        </div>
-      );
+    function setText(elementId, text) {
+      const el = document.getElementById(elementId);
+      if (el) el.textContent = text;
     }
 
-    function Dashboard() {
-      const [snap, setSnap] = useState(null);
-      const [wsState, setWsState] = useState('connecting');
-      const wsRef = useRef(null);
-
-      useEffect(() => {
-        const connect = () => {
-          const ws = new WebSocket(`ws://${location.host}/ws`);
-          wsRef.current = ws;
-          ws.onopen  = () => setWsState('connected');
-          ws.onclose = () => { setWsState('disconnected'); setTimeout(connect, 2000); };
-          ws.onerror = () => setWsState('error');
-          ws.onmessage = (e) => {
-            try { setSnap(JSON.parse(e.data)); } catch {}
-          };
-        };
-        connect();
-        return () => wsRef.current?.close();
-      }, []);
-
-      if (!snap) return (
-        <div>
-          <h1>⬡ Robust Penny Scalper v7.0</h1>
-          <div className="ws-status">الاتصال: {wsState}</div>
-          <div style={{color:'var(--muted)'}}>في انتظار البيانات...</div>
-        </div>
-      );
-
-      const regimeClass = snap.regime === 'Normal' ? 'ok' : snap.regime === 'Caution' ? 'warn' : 'danger';
-      const pnlClass = snap.daily_pnl_usd >= 0 ? 'ok' : 'danger';
-
-      return (
-        <div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px'}}>
-            <h1>⬡ Robust Penny Scalper v7.0</h1>
-            <div className="ws-status">
-              <span className={`status-dot ${wsState === 'connected' ? 'ok' : 'danger'}`}></span>
-              {wsState === 'connected' ? ' متصل' : ' منقطع'}
-            </div>
-          </div>
-
-          {snap.monitor_only && (
-            <div className="monitor-banner active">
-              ⚠️ وضع المراقبة فقط — لا صفقات جديدة — {snap.data_quality === 'Degraded' ? 'البيانات متدهورة' : 'سبب آخر'}
-            </div>
-          )}
-
-          <div className="grid">
-            <Card title="الوضع السوقي" value={snap.regime} cls={regimeClass}
-              extra={<><StatusDot state={snap.regime} /> {snap.session_state}</>} />
-            <Card title="ربح اليوم" value={`$${snap.daily_pnl_usd.toFixed(2)}`} cls={pnlClass}
-              extra={`خسارة يومية متبقية: $${snap.max_daily_loss_remaining.toFixed(2)}`} />
-            <Card title="كمون P95" value={`${snap.p95_latency_us}µs`}
-              cls={snap.p95_latency_us > 10000 ? 'warn' : 'ok'} />
-            <Card title="المراكز المفتوحة" value={snap.open_positions} cls="accent" />
-            <Card title="جودة البيانات" value={snap.data_quality}
-              cls={snap.data_quality === 'OK' ? 'ok' : 'danger'} />
-            <Card title="حالة OMS" value={snap.oms_state}
-              cls={snap.oms_state === 'IDLE' ? 'ok' : snap.oms_state === 'ACTIVE' ? 'accent' : 'danger'} />
-            <Card title="اشتراكات IBKR"
-              value={`${snap.ibkr_subscription_count}/${snap.ibkr_subscription_budget}`}
-              cls={snap.ibkr_subscription_count >= snap.ibkr_subscription_budget * 0.8 ? 'warn' : 'ok'} />
-            <Card title="مستوى سلم الخسائر"
-              value={snap.loss_ladder_level === 0 ? 'لا خسائر' : `المستوى ${snap.loss_ladder_level}`}
-              cls={snap.loss_ladder_level === 0 ? 'ok' : 'danger'} />
-          </div>
-
-          {snap.recent_alerts.length > 0 && (
-            <div className="card" style={{marginBottom:'12px'}}>
-              <div className="card-title">⚠️ التنبيهات الأخيرة</div>
-              <ul className="alert-list">
-                {snap.recent_alerts.map((a, i) => <li key={i}>{a}</li>)}
-              </ul>
-            </div>
-          )}
-
-          {snap.recent_rejects.length > 0 && (
-            <div className="card">
-              <div className="card-title">آخر رفضيات القرار</div>
-              <div style={{fontSize:'13px',color:'var(--muted)'}}>
-                {snap.recent_rejects.join(' · ')}
-              </div>
-            </div>
-          )}
-        </div>
-      );
+    function getStatusClass(state) {
+      if (state === 'Normal' || state === 'OK' || state === 'ok') return 'ok';
+      if (state === 'Caution' || state === 'Degraded') return 'warn';
+      return 'danger';
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<Dashboard />);
+    // Dashboard UI Update Logic
+    function updateDashboard(snap) {
+      document.getElementById('loading-message').style.display = 'none';
+      document.getElementById('dashboard-content').style.display = 'block';
+
+      // Monitor Banner
+      const banner = document.getElementById('monitor-banner');
+      if (snap.monitor_only) {
+        banner.classList.add('active');
+        setText('monitor-reason', snap.data_quality === 'Degraded' ? 'البيانات متدهورة' : 'سبب آخر');
+      } else {
+        banner.classList.remove('active');
+      }
+
+      // Regime
+      const regimeCls = snap.regime === 'Normal' ? 'ok' : snap.regime === 'Caution' ? 'warn' : 'danger';
+      setText('val-regime', snap.regime);
+      setClass('val-regime', 'card-value', regimeCls);
+      setClass('dot-regime', 'status-dot', getStatusClass(snap.regime));
+      setText('extra-session', snap.session_state);
+
+      // PnL
+      const pnlVal = parseFloat(snap.daily_pnl_usd || 0);
+      const pnlCls = pnlVal >= 0 ? 'ok' : 'danger';
+      setText('val-pnl', `$${pnlVal.toFixed(2)}`);
+      setClass('val-pnl', 'card-value', pnlCls);
+      setText('extra-pnl', `خسارة يومية متبقية: $${parseFloat(snap.max_daily_loss_remaining || 0).toFixed(2)}`);
+
+      // Latency
+      setText('val-latency', `${snap.p95_latency_us}µs`);
+      setClass('val-latency', 'card-value', snap.p95_latency_us > 10000 ? 'warn' : 'ok');
+
+      // Positions
+      setText('val-positions', snap.open_positions);
+
+      // Data Quality
+      setText('val-quality', snap.data_quality);
+      setClass('val-quality', 'card-value', snap.data_quality === 'OK' ? 'ok' : 'danger');
+
+      // OMS State
+      setText('val-oms', snap.oms_state);
+      const omsCls = snap.oms_state === 'IDLE' ? 'ok' : snap.oms_state === 'ACTIVE' ? 'accent' : 'danger';
+      setClass('val-oms', 'card-value', omsCls);
+
+      // Subscriptions
+      const subsCount = snap.ibkr_subscription_count || 0;
+      const subsBudget = snap.ibkr_subscription_budget || 0;
+      setText('val-subs', `${subsCount}/${subsBudget}`);
+      setClass('val-subs', 'card-value', subsCount >= subsBudget * 0.8 ? 'warn' : 'ok');
+
+      // Loss Ladder
+      const ladderLvl = snap.loss_ladder_level || 0;
+      setText('val-ladder', ladderLvl === 0 ? 'لا خسائر' : `المستوى ${ladderLvl}`);
+      setClass('val-ladder', 'card-value', ladderLvl === 0 ? 'ok' : 'danger');
+
+      // Alerts
+      const alertsCard = document.getElementById('alerts-card');
+      const alertsList = document.getElementById('alerts-list');
+      if (snap.recent_alerts && snap.recent_alerts.length > 0) {
+        alertsCard.style.display = 'block';
+        alertsList.innerHTML = ''; // Clear previous alerts
+        snap.recent_alerts.forEach(a => {
+          const li = document.createElement('li');
+          li.textContent = a; // Safe from XSS
+          alertsList.appendChild(li);
+        });
+      } else {
+        alertsCard.style.display = 'none';
+      }
+
+      // Rejects
+      const rejectsCard = document.getElementById('rejects-card');
+      const rejectsList = document.getElementById('rejects-list');
+      if (snap.recent_rejects && snap.recent_rejects.length > 0) {
+        rejectsCard.style.display = 'block';
+        rejectsList.textContent = snap.recent_rejects.join(' · ');
+      } else {
+        rejectsCard.style.display = 'none';
+      }
+    }
+
+    // WebSocket Connection Management
+    let ws = null;
+    let wsState = 'connecting';
+
+    function setWsState(state) {
+      wsState = state;
+      const dot = document.getElementById('ws-status-dot');
+      const txt = document.getElementById('ws-status-text');
+      if (state === 'connected') {
+        dot.className = 'status-dot ok';
+        txt.textContent = ' متصل';
+      } else {
+        dot.className = 'status-dot danger';
+        txt.textContent = ' منقطع';
+      }
+    }
+
+    function connectWs() {
+      setWsState('connecting');
+      ws = new WebSocket(`ws://${location.host}/ws`);
+
+      ws.onopen = () => {
+        setWsState('connected');
+      };
+
+      ws.onclose = () => {
+        setWsState('disconnected');
+        setTimeout(connectWs, 2000);
+      };
+
+      ws.onerror = () => {
+        setWsState('error');
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const snap = JSON.parse(e.data);
+          updateDashboard(snap);
+        } catch (err) {
+          console.error("Failed to parse websocket message", err);
+        }
+      };
+    }
+
+    // Initialize on load
+    document.addEventListener("DOMContentLoaded", () => {
+      connectWs();
+    });
   </script>
 </body>
 </html>

@@ -60,9 +60,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let bind_addr = &config.dashboard.bind_address;
+    let is_localhost = bind_addr.starts_with("127.0.0.1") || bind_addr.starts_with("localhost");
+
+    if !is_localhost {
+        log::warn!("SECURITY WARNING: Dashboard is configured to bind to a non-localhost address ({})", bind_addr);
+        if !config.dashboard.allow_insecure_remote {
+            log::error!("FATAL: ws:// on non-localhost is disabled by default for security. Set dashboard.allow_insecure_remote = true to override.");
+            std::process::exit(1);
+        }
+    }
+
     let app = dashboard::router(dashboard_state);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-    info!("Starting Dashboard Server on 0.0.0.0:8080");
+    let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
+    info!("Starting Dashboard Server on {}", bind_addr);
 
     // Run both the dashboard server and the main application runtime
     tokio::select! {

@@ -38,6 +38,9 @@ pub struct DashboardConfig {
     pub bind_address: String,
     pub allow_insecure_remote: bool,
     pub auth_token: String,
+pub struct DashboardConfig {
+    pub bind_address: String,
+    pub allow_insecure_remote: bool,
 }
 
 impl Default for DashboardConfig {

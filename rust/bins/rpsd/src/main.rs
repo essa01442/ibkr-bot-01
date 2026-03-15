@@ -77,6 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let app = dashboard::router(dashboard_state, config.dashboard.auth_token.clone());
+    let app = dashboard::router(dashboard_state);
     let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
     info!("Starting Dashboard Server on {}", bind_addr);
 

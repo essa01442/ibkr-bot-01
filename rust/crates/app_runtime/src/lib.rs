@@ -21,8 +21,6 @@ use tokio::task;
 use tokio_util::sync::CancellationToken;
 use watchlist_engine::WatchlistSnapshot;
 
-const RISK_STATE_PATH: &str = "/var/run/rps/risk_state.json";
-
 /// Stack-allocated idempotency key — zero heap allocation per §5.3.
 /// Format: "SYM_ID-TS_MICROS" as ASCII bytes, optionally with a prefix.
 fn idempotency_key_stack(prefix: &str, symbol_id: u32, ts: u64) -> arrayvec::ArrayString<64> {
@@ -57,8 +55,12 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    let socket_dir = &config.system.runtime_socket_dir;
+    let risk_state_path_str = format!("{}/risk_state.json", socket_dir);
+    let risk_state_path = Path::new(&risk_state_path_str);
+
     // Ensure runtime directory exists
-    if let Some(parent) = Path::new(RISK_STATE_PATH).parent() {
+    if let Some(parent) = risk_state_path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent)?;
             std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
@@ -76,9 +78,9 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let account_capital = config.risk.account_capital_usd;
 
     // Load Risk State from file or create new
-    let risk_state_inner = if Path::new(RISK_STATE_PATH).exists() {
-        log::info!("Loading persistent risk state from {}", RISK_STATE_PATH);
-        match risk_engine::RiskState::load_from_file(Path::new(RISK_STATE_PATH)) {
+    let risk_state_inner = if risk_state_path.exists() {
+        log::info!("Loading persistent risk state from {}", risk_state_path_str);
+        match risk_engine::RiskState::load_from_file(risk_state_path) {
             Ok(mut state) => {
                 // Override config values
                 state.initial_max_daily_loss = config.risk.max_daily_loss_usd;
@@ -159,6 +161,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let mut oms_order_rx = channels.oms_order_rx;
     let _oms_tx = channels.oms_market_tx.clone();
     let shutdown_token_oms = shutdown_token.clone();
+    let config_clone_for_oms = config.clone();
     task::spawn(async move {
         log::info!("OMS Task started");
         let mut calib_logger = metrics_observability::CalibrationLogger::new(20);
@@ -174,9 +177,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut oms_positions: std::collections::HashMap<core_types::SymbolId, OmsPosition> = std::collections::HashMap::new();
 
+        let cmd_sock_path = format!("{}/rps_commands.sock", config_clone_for_oms.system.runtime_socket_dir);
         // Instantiate BridgeCmdSender once outside the loop for performance
         #[cfg(not(feature = "paper_mode"))]
-        let cmd_sender = bridge_rx::cmd_sender::BridgeCmdSender::new("/var/run/rps/rps_commands.sock")
+        let cmd_sender = bridge_rx::cmd_sender::BridgeCmdSender::new(&cmd_sock_path)
             .map_err(|e| {
                 log::error!("Failed to initialize BridgeCmdSender: {}", e);
                 e
@@ -669,8 +673,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         Some(e) => e,
                         None => break,
                     };
-            match event.kind {
-                EventKind::Tick(tick) => {
+                    match event.kind {
+                        EventKind::Tick(tick) => {
                     // Subscription count tracking
                     if watchlist.get_tier(event.symbol_id) == Some(core_types::Tier::A) {
                         // Already Tier A — count it
@@ -692,7 +696,6 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     (subscription_count * 100 / sub_limit)
                                 );
                             }
-                            match watchlist.promote(event.symbol_id, &mut Some(&mut metrics_collector)) {
                             let mut local_metrics = metrics_observability::MetricsCollector::default();
                             match watchlist.promote(event.symbol_id, &mut Some(&mut local_metrics)) {
                                 Ok(()) => {
@@ -800,22 +803,20 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // Process Symbol Lifecycle periodically on Heartbeat
-                    let mut local_metrics = metrics_observability::MetricsCollector::default();
                     watchlist.process_lifecycle(
                         config.watchlist.demotion_cycles,
                         config.watchlist.eviction_cycles,
                         config.watchlist.min_quality_score,
                         config.watchlist.min_volume,
                         &mut metrics_collector,
-                        &mut local_metrics,
                     );
                 }
                 _ => {}
             }
+                }
+            }
             slow_snapshot_writer.store(Arc::new(watchlist.snapshot()));
-            }
-            }
-        }
+        } // closes loop
     });
 
     // 5. Spawn FastLoop Task
@@ -824,6 +825,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let risk_state_fast = risk_state.clone();
     let order_tx = channels.oms_order_tx;
     let shutdown_token_fast = shutdown_token.clone();
+    let runtime_socket_dir = config.system.runtime_socket_dir.clone();
 
     task::spawn(async move {
         log::info!("FastLoop Task started");
@@ -1191,7 +1193,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
                 // Access mutex to save
                 if let Ok(guard) = tape_engine.risk_state.lock() {
-                    if let Err(e) = guard.save_to_file(Path::new(RISK_STATE_PATH)) {
+                    let save_path = format!("{}/risk_state.json", runtime_socket_dir);
+                    if let Err(e) = guard.save_to_file(Path::new(&save_path)) {
                         log::error!("Failed to persist risk state: {}", e);
                     }
                 }
@@ -1280,7 +1283,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         rx: dummy_rx,
     };
 
-    let mut bridge_task = bridge_rx::BridgeRxTask::new("/var/run/rps/rps_uds.sock", bridge_bus)?;
+    let rx_sock_path = format!("{}/rps_uds.sock", config.system.runtime_socket_dir);
+    let mut bridge_task = bridge_rx::BridgeRxTask::new(&rx_sock_path, bridge_bus)?;
     bridge_task.set_degraded_notifier(degraded_tx);
     task::spawn(async move {
         bridge_task.run().await;

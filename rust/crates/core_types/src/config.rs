@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AppConfig {
+    #[serde(default)]
+    pub system: SystemConfig,
     pub risk: RiskConfig,
     pub universe: UniverseConfig,
     pub tape: TapeConfig,
@@ -19,6 +21,23 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SystemConfig {
+    pub runtime_socket_dir: String,
+}
+
+impl Default for SystemConfig {
+    fn default() -> Self {
+        Self {
+            runtime_socket_dir: "/tmp/rps".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DashboardConfig {
+    pub bind_address: String,
+    pub allow_insecure_remote: bool,
+    pub auth_token: String,
 pub struct DashboardConfig {
     pub bind_address: String,
     pub allow_insecure_remote: bool,
@@ -29,6 +48,7 @@ impl Default for DashboardConfig {
         Self {
             bind_address: "127.0.0.1:8080".to_string(),
             allow_insecure_remote: false,
+            auth_token: "".to_string(),
         }
     }
 }
@@ -260,6 +280,7 @@ min_volume = 500000
     #[test]
     fn test_dashboard_security_default_localhost() {
         let default_config = AppConfig {
+            system: SystemConfig::default(),
             risk: RiskConfig { max_daily_loss_usd: 100.0, risk_per_trade_usd: 25.0, max_position_pct: 0.15, budget_cap_pct: 0.20, account_capital_usd: 25000.0 },
             universe: UniverseConfig { min_avg_daily_volume: 2000000, min_avg_weekly_volume: 5000000, min_addv_usd: 50000.0 },
             tape: TapeConfig { tape_threshold_normal: 72.0, tape_threshold_post_target: 82.0, tape_threshold_warm: 67.0, weights: TapeWeights { w_r: 0.3, w_a: 0.22, w_lp: 0.22, w_spr: 0.13, w_abs: 0.08, w_bls: 0.05 } },

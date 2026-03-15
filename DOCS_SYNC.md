@@ -78,7 +78,7 @@ Placeholder for runtime logs.
 * **File Modified**: `README.md`
 * **Before**:
 ```markdown
-# Robust Penny Scalper v7.0 FINAL
+# Robust Penny Scalper v7.0
 ```
 * **After**:
 ```markdown

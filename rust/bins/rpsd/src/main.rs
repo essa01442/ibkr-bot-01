@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     env_logger::init();
-    info!("Starting Robust Penny Scalper v7.0 FINAL");
+    info!("Starting Robust Penny Scalper v7.0");
 
     let config_path = "configs/default.toml";
     let config_str = std::fs::read_to_string(config_path)
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create broadcast channel for WebSocket server
     let (tx, _rx) = broadcast::channel(100);
-    let dashboard_state = Arc::new(dashboard::DashboardState { tx: tx.clone() });
+    let dashboard_state = Arc::new(dashboard::DashboardState { tx: tx.clone(), auth_token: config.dashboard.auth_token.clone() });
 
     // Ensure we do not broadcast synthetic 'Normal' / 0.0 PNL as live data
     tokio::spawn(async move {
@@ -71,6 +71,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    if config.dashboard.auth_token.trim().is_empty() {
+        log::error!("FATAL: dashboard.auth_token is required but missing or empty in configuration. Refusing to start.");
+        std::process::exit(1);
+    }
+
+    let app = dashboard::router(dashboard_state, config.dashboard.auth_token.clone());
     let app = dashboard::router(dashboard_state);
     let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
     info!("Starting Dashboard Server on {}", bind_addr);

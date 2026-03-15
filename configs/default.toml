@@ -79,3 +79,11 @@ demotion_cycles = 3
 eviction_cycles = 5
 min_quality_score = 45.0
 min_volume = 500000
+
+[system]
+runtime_socket_dir = "/tmp/rps"
+
+[dashboard]
+bind_address = "127.0.0.1:8080"
+allow_insecure_remote = false
+auth_token = "replace_me_with_a_secure_token"

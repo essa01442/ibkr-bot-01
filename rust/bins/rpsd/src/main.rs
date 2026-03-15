@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }));
 
     env_logger::init();
-    info!("Starting Robust Penny Scalper v7.0 FINAL");
+    info!("Starting Robust Penny Scalper v7.0");
 
     let config_path = "configs/default.toml";
     let config_str = std::fs::read_to_string(config_path)
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create broadcast channel for WebSocket server
     let (tx, _rx) = broadcast::channel(100);
-    let dashboard_state = Arc::new(dashboard::DashboardState { tx: tx.clone() });
+    let dashboard_state = Arc::new(dashboard::DashboardState { tx: tx.clone(), auth_token: config.dashboard.auth_token.clone() });
 
     // Ensure we do not broadcast synthetic 'Normal' / 0.0 PNL as live data
     tokio::spawn(async move {
@@ -60,9 +60,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    let app = dashboard::router(dashboard_state);
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-    info!("Starting Dashboard Server on 0.0.0.0:8080");
+    let bind_addr = &config.dashboard.bind_address;
+    let is_localhost = bind_addr.starts_with("127.0.0.1") || bind_addr.starts_with("localhost");
+
+    if !is_localhost {
+        log::warn!("SECURITY WARNING: Dashboard is configured to bind to a non-localhost address ({})", bind_addr);
+        if !config.dashboard.allow_insecure_remote {
+            log::error!("FATAL: ws:// on non-localhost is disabled by default for security. Set dashboard.allow_insecure_remote = true to override.");
+            std::process::exit(1);
+        }
+    }
+
+    if config.dashboard.auth_token.trim().is_empty() {
+        log::error!("FATAL: dashboard.auth_token is required but missing or empty in configuration. Refusing to start.");
+        std::process::exit(1);
+    }
+
+    let app = dashboard::router(dashboard_state, config.dashboard.auth_token.clone());
+    let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
+    info!("Starting Dashboard Server on {}", bind_addr);
 
     // Run both the dashboard server and the main application runtime
     tokio::select! {

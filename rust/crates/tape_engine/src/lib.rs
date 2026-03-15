@@ -363,10 +363,13 @@ impl TapeEngine {
             return Err(RejectReason::MonitorOnly);
         }
 
-        let state = self
-            .symbol_states
-            .get(&symbol)
-            .expect("Symbol state should exist");
+        let state = match self.symbol_states.get(&symbol) {
+            Some(s) => s,
+            None => {
+                log::error!("Symbol state missing for symbol_id {}", symbol.0);
+                return Err(RejectReason::Unknown);
+            }
+        };
 
         // 0. Pre-Gate: Tier A Only (User Requirement)
         if state.tier != Tier::A {
@@ -490,7 +493,7 @@ impl TapeEngine {
             state.tape.avg_depth_top3,
         );
         if expected_net_val <= self.pricing_model.min_net_profit_usd {
-            println!(
+            log::debug!(
                 "DEBUG: NetNegative. Shares: {}, Price: {}, Spread: {}, Net: {}, Min: {}",
                 self.last_sizing_shares,
                 state.tape.price,

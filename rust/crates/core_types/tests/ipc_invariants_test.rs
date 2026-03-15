@@ -17,7 +17,8 @@ fn load_fixture(name: &str) -> Vec<u8> {
 
     let mut file =
         File::open(&path).unwrap_or_else(|_| panic!("Failed to open fixture: {:?}", path));
-    let mut file = File::open(&path).unwrap_or_else(|_| panic!("Failed to open fixture: {:?}", path));
+    let mut file =
+        File::open(&path).unwrap_or_else(|_| panic!("Failed to open fixture: {:?}", path));
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
     buffer
@@ -49,17 +50,6 @@ fn validate_event(event: &Event) -> bool {
             if tick.price <= 0.0 || tick.price > 1000.0 || tick.size == 0 {
                 return false;
             }
-    if event.symbol_id.0 == 0 { return false; }
-
-    // Stale check (older than 5s)
-    if now_us > event.ts_src && now_us - event.ts_src > 5_000_000 { return false; }
-
-    // Future check (allowing small drift)
-    if event.ts_src == 0 || event.ts_src > now_us + 5_000_000 { return false; }
-
-    match event.kind {
-        EventKind::Tick(tick) => {
-            if tick.price <= 0.0 || tick.price > 1000.0 || tick.size == 0 { return false; }
         }
         _ => {}
     }
@@ -86,7 +76,10 @@ fn test_invalid_tick_fixture_rejected() {
         !validate_event(&event),
         "Invalid tick should fail domain validation"
     );
-    assert!(!validate_event(&event), "Invalid tick should fail domain validation");
+    assert!(
+        !validate_event(&event),
+        "Invalid tick should fail domain validation"
+    );
 }
 
 #[test]
@@ -99,7 +92,10 @@ fn test_invalid_timestamp_tick() {
         !validate_event(&event),
         "Event with future timestamp should be rejected"
     );
-    assert!(!validate_event(&event), "Event with future timestamp should be rejected");
+    assert!(
+        !validate_event(&event),
+        "Event with future timestamp should be rejected"
+    );
 }
 
 #[test]
@@ -121,7 +117,10 @@ fn test_invalid_new_order_fixture() {
             !is_valid,
             "Invalid new order with qty=0 should fail domain validation"
         );
-        assert!(!is_valid, "Invalid new order with qty=0 should fail domain validation");
+        assert!(
+            !is_valid,
+            "Invalid new order with qty=0 should fail domain validation"
+        );
     } else {
         panic!("Should have parsed but with invalid data");
     }
@@ -136,7 +135,10 @@ fn test_invalid_enum_order() {
         cmd.is_err(),
         "Order with invalid enum variant must fail to parse"
     );
-    assert!(cmd.is_err(), "Order with invalid enum variant must fail to parse");
+    assert!(
+        cmd.is_err(),
+        "Order with invalid enum variant must fail to parse"
+    );
 }
 
 #[test]
@@ -155,7 +157,10 @@ fn test_invalid_cancel_order_fixture() {
         cmd.is_err(),
         "CancelOrder missing required field must fail to parse"
     );
-    assert!(cmd.is_err(), "CancelOrder missing required field must fail to parse");
+    assert!(
+        cmd.is_err(),
+        "CancelOrder missing required field must fail to parse"
+    );
 }
 
 #[test]
@@ -172,10 +177,16 @@ fn test_malformed_payload_rejection() {
         cmd_result.is_err(),
         "Malformed payload must result in a clean parsing error"
     );
-    assert!(result.is_err(), "Malformed payload must result in a clean parsing error");
+    assert!(
+        result.is_err(),
+        "Malformed payload must result in a clean parsing error"
+    );
 
     let cmd_result: Result<OmsCommand, _> = rmp_serde::from_slice(&payload);
-    assert!(cmd_result.is_err(), "Malformed payload must result in a clean parsing error");
+    assert!(
+        cmd_result.is_err(),
+        "Malformed payload must result in a clean parsing error"
+    );
 }
 
 #[test]
@@ -215,7 +226,6 @@ fn test_backward_compatibility() {
             flags: 0,
             unknown_new_field: "v1_data".to_string(),
         }),
-        })
     };
 
     let payload = rmp_serde::to_vec_named(&v1_event).unwrap();
@@ -314,5 +324,4 @@ fn test_valid_heartbeat_fixture() {
     let payload = load_fixture("valid_heartbeat.msgpack");
     let event: Result<Event, _> = rmp_serde::from_slice(&payload);
     assert!(event.is_ok());
-    assert!(parsed.is_ok(), "Should parse ignoring unknown fields: {:?}", parsed.err());
 }

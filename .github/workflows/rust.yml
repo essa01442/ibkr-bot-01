@@ -17,6 +17,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build
+      working-directory: ./rust
       run: cargo build --verbose
+    - name: Install Python dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        python3 -m pip install msgpack pytest
     - name: Run tests
+      working-directory: ./rust
       run: cargo test --verbose

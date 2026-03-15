@@ -39,9 +39,6 @@ async def run_tests(sock_path):
     cmd_thread = threading.Thread(target=command_server_thread, args=(cmd_path, cancel_event))
     cmd_thread.start()
 
-async def run_tests(sock_path):
-    print("Starting integration tests on", sock_path)
-
     # Scenario 1: Valid Message
     tick_event = {
         "ts_src": int(time.time() * 1_000_000),

@@ -80,7 +80,6 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 name = "app_runtime"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "arc-swap",
  "arrayvec",
  "bridge_rx",
@@ -223,6 +222,7 @@ dependencies = [
 name = "bridge_rx"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "core_types",
  "event_bus",
  "log",
@@ -329,7 +329,9 @@ dependencies = [
  "arrayvec",
  "chrono",
  "chrono-tz",
+ "rmp-serde",
  "serde",
+ "serde_json",
  "thiserror",
  "toml",
 ]

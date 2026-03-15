@@ -58,7 +58,7 @@ pub enum OmsCommand {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
-    pub order_id: u64,           // Internal ID
+    pub order_id: u64,                              // Internal ID
     pub client_order_id: arrayvec::ArrayString<64>, // Idempotency Key
     pub broker_order_id: Option<String>,
     pub symbol_id: SymbolId,

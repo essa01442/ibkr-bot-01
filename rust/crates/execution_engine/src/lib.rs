@@ -51,7 +51,7 @@ impl OrderManagementSystem {
 
         let order = Order {
             order_id,
-            client_order_id: request.idempotency_key.clone(),
+            client_order_id: request.idempotency_key,
             broker_order_id: None,
             symbol_id: request.symbol_id,
             side: request.side,
@@ -133,9 +133,11 @@ impl OrderManagementSystem {
                     // Gracefully ignore duplicate cancel requests
                     Ok(false)
                 }
-                OrderStatus::Filled | OrderStatus::Cancelled | OrderStatus::Rejected | OrderStatus::CancelRejected | OrderStatus::CancelTimeout => {
-                    Err("Order in terminal state, cannot cancel")
-                }
+                OrderStatus::Filled
+                | OrderStatus::Cancelled
+                | OrderStatus::Rejected
+                | OrderStatus::CancelRejected
+                | OrderStatus::CancelTimeout => Err("Order in terminal state, cannot cancel"),
             }
         } else {
             Err("Order not found")
@@ -153,7 +155,10 @@ impl OrderManagementSystem {
 
     pub fn handle_cancel_ack(&mut self, order_id: u64, timestamp_us: u64) {
         if let Some(order) = self.orders.get_mut(&order_id) {
-            if order.status == OrderStatus::PendingCancel || order.status == OrderStatus::CancelSent || order.status == OrderStatus::CancelTimeout {
+            if order.status == OrderStatus::PendingCancel
+                || order.status == OrderStatus::CancelSent
+                || order.status == OrderStatus::CancelTimeout
+            {
                 order.status = OrderStatus::Cancelled;
                 order.updated_at = timestamp_us;
             }
@@ -162,7 +167,8 @@ impl OrderManagementSystem {
 
     pub fn handle_cancel_reject(&mut self, order_id: u64, _reason: &str, timestamp_us: u64) {
         if let Some(order) = self.orders.get_mut(&order_id) {
-            if order.status == OrderStatus::PendingCancel || order.status == OrderStatus::CancelSent {
+            if order.status == OrderStatus::PendingCancel || order.status == OrderStatus::CancelSent
+            {
                 order.status = OrderStatus::CancelRejected;
                 order.updated_at = timestamp_us;
             }
@@ -195,7 +201,8 @@ impl OrderManagementSystem {
     pub fn check_cancel_timeouts(&mut self, now_us: u64, cancel_timeout_us: u64) -> Vec<u64> {
         let mut timed_out = Vec::new();
         for (id, order) in &mut self.orders {
-            if (order.status == OrderStatus::PendingCancel || order.status == OrderStatus::CancelSent)
+            if (order.status == OrderStatus::PendingCancel
+                || order.status == OrderStatus::CancelSent)
                 && now_us > order.updated_at
                 && (now_us - order.updated_at) > cancel_timeout_us
             {
@@ -252,7 +259,7 @@ impl OrderManagementSystem {
                     // but we can add it if needed.
                     if !broker_order.client_order_id.is_empty() {
                         self.idempotency_cache
-                            .insert(broker_order.client_order_id.clone(), new_id);
+                            .insert(broker_order.client_order_id, new_id);
                     }
                 }
             }
@@ -493,13 +500,16 @@ mod tests {
         };
 
         let id = oms.place_order(request, 1000).unwrap();
-        oms.handle_fill(core_types::FillData {
-            order_id: id,
-            price: 10.0,
-            size: 100,
-            side: Side::Bid,
-            liquidity: 0,
-        }, 1500);
+        oms.handle_fill(
+            core_types::FillData {
+                order_id: id,
+                price: 10.0,
+                size: 100,
+                side: Side::Bid,
+                liquidity: 0,
+            },
+            1500,
+        );
 
         assert_eq!(oms.orders[&id].status, OrderStatus::Filled);
 

@@ -1,5 +1,5 @@
-use std::os::unix::net::UnixDatagram;
 use core_types::OmsCommand;
+use std::os::unix::net::UnixDatagram;
 
 pub struct BridgeCmdSender {
     socket: UnixDatagram,

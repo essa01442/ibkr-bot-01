@@ -418,7 +418,9 @@ impl CalibrationField {
         if reason.trim().is_empty() {
             return Err("Unavailable reason cannot be empty");
         }
-        Ok(Self::Unavailable { reason: reason.to_string() })
+        Ok(Self::Unavailable {
+            reason: reason.to_string(),
+        })
     }
 }
 
@@ -433,23 +435,36 @@ pub struct SlippageRecord {
     pub entry_price: f64,
     pub predicted_slippage: CalibrationField,
     pub actual_slippage: f64,
-    pub ratio: Option<f64>,  // actual / predicted
+    pub ratio: Option<f64>, // actual / predicted
 }
 
 impl CalibrationLogger {
     pub fn new(min_trades: usize) -> Self {
-        Self { records: Vec::new(), min_trades_for_eval: min_trades }
+        Self {
+            records: Vec::new(),
+            min_trades_for_eval: min_trades,
+        }
     }
 
-    pub fn record(&mut self, symbol_id: u32, ts: u64, shares: u32, entry_price: f64,
-                  predicted: CalibrationField, actual: f64) {
+    pub fn record(
+        &mut self,
+        symbol_id: u32,
+        ts: u64,
+        shares: u32,
+        entry_price: f64,
+        predicted: CalibrationField,
+        actual: f64,
+    ) {
         let ratio = match &predicted {
             CalibrationField::Real(p) => Some(actual / p),
             CalibrationField::Unavailable { .. } => None,
         };
 
         self.records.push(SlippageRecord {
-            symbol_id, ts, shares, entry_price,
+            symbol_id,
+            ts,
+            shares,
+            entry_price,
             predicted_slippage: predicted,
             actual_slippage: actual,
             ratio,
@@ -459,8 +474,11 @@ impl CalibrationLogger {
     /// Returns Some(avg_ratio) if we have enough data, None otherwise.
     /// Per §26.4: if avg_ratio > 1.5 → update α/β.
     pub fn evaluate(&self) -> Option<f64> {
-        let valid_records: Vec<&SlippageRecord> = self.records.iter().filter(|r| r.ratio.is_some()).collect();
-        if valid_records.len() < self.min_trades_for_eval { return None; }
+        let valid_records: Vec<&SlippageRecord> =
+            self.records.iter().filter(|r| r.ratio.is_some()).collect();
+        if valid_records.len() < self.min_trades_for_eval {
+            return None;
+        }
 
         let sum: f64 = valid_records.iter().map(|r| r.ratio.unwrap()).sum();
         Some(sum / valid_records.len() as f64)
@@ -473,8 +491,7 @@ impl CalibrationLogger {
 
     /// Save to JSON for analysis.
     pub fn save(&self, path: &str) -> std::io::Result<()> {
-        let json = serde_json::to_string_pretty(&self.records)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let json = serde_json::to_string_pretty(&self.records).map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 }
@@ -513,17 +530,25 @@ impl WeeklyReviewReport {
         // Check for dominant reject reason
         if let Some((reason, count)) = self.reject_distribution.iter().max_by_key(|(_, c)| c) {
             let total: u32 = self.reject_distribution.iter().map(|(_, c)| c).sum();
-            let pct = if total > 0 { *count as f64 / total as f64 } else { 0.0 };
+            let pct = if total > 0 {
+                *count as f64 / total as f64
+            } else {
+                0.0
+            };
             if pct > 0.5 {
-                self.recommendations.push(
-                    format!("{} dominates rejects ({:.0}%) — review parameters for this gate", reason, pct * 100.0)
-                );
+                self.recommendations.push(format!(
+                    "{} dominates rejects ({:.0}%) — review parameters for this gate",
+                    reason,
+                    pct * 100.0
+                ));
             }
         }
 
         if self.total_trades < 10 {
             self.recommendations.clear();
-            self.recommendations.push("Insufficient sample (< 10 trades) — no recommendations this week".to_string());
+            self.recommendations.push(
+                "Insufficient sample (< 10 trades) — no recommendations this week".to_string(),
+            );
         }
     }
 }

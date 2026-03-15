@@ -92,7 +92,10 @@ impl Blocklist {
 
     fn load(&mut self) {
         if !self.path.exists() {
-            log::warn!("Blocklist file not found: {:?} — using empty list", self.path);
+            log::warn!(
+                "Blocklist file not found: {:?} — using empty list",
+                self.path
+            );
             self.last_loaded = SystemTime::now();
             return;
         }
@@ -102,10 +105,12 @@ impl Blocklist {
                     Ok(file) => {
                         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
                         // Filter out expired entries
-                        let active: HashMap<String, BlocklistEntry> = file.symbols
+                        let active: HashMap<String, BlocklistEntry> = file
+                            .symbols
                             .into_iter()
                             .filter(|e| {
-                                let expired = e.expiry.as_ref().map(|exp| exp <= &today).unwrap_or(false);
+                                let expired =
+                                    e.expiry.as_ref().map(|exp| exp <= &today).unwrap_or(false);
                                 if expired {
                                     log::info!("BLOCKLIST_EXPIRED_REMOVED: {}", e.symbol);
                                 }
@@ -126,7 +131,9 @@ impl Blocklist {
     }
 
     fn rebuild_id_set(&mut self) {
-        self.blocked_ids = self.entries.keys()
+        self.blocked_ids = self
+            .entries
+            .keys()
             .filter_map(|ticker| self.ticker_to_id.get(ticker))
             .copied()
             .collect();

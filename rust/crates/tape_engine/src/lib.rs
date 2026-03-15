@@ -233,7 +233,11 @@ impl TapeEngine {
 
         // Update Unrealized PnL
         if state.position != 0 {
-            let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(state.position, state.avg_cost, tick.price);
+            let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(
+                state.position,
+                state.avg_cost,
+                tick.price,
+            );
             let delta = new_unrealized - state.current_unrealized_pnl;
             state.current_unrealized_pnl = new_unrealized;
 
@@ -277,13 +281,17 @@ impl TapeEngine {
 
             if same_side {
                 state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
-                    state.position.abs() as u32, state.avg_cost,
-                    fill.size as u32, fill_price
+                    state.position.unsigned_abs(),
+                    state.avg_cost,
+                    fill.size,
+                    fill_price,
                 );
                 state.position += signed_fill_size;
             } else {
                 let trade_pnl = core_types::trade_accounting::compute_realized_pnl(
-                    state.position, state.avg_cost, &fill
+                    state.position,
+                    state.avg_cost,
+                    &fill,
                 );
                 state.realized_pnl += trade_pnl;
 
@@ -311,7 +319,11 @@ impl TapeEngine {
         } else {
             fill_price
         };
-        let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(state.position, state.avg_cost, current_price);
+        let new_unrealized = core_types::trade_accounting::compute_unrealized_pnl(
+            state.position,
+            state.avg_cost,
+            current_price,
+        );
 
         let delta_unrealized = new_unrealized - state.current_unrealized_pnl;
         state.current_unrealized_pnl = new_unrealized;
@@ -359,14 +371,22 @@ impl TapeEngine {
         day_ordinal: u32,
     ) -> Result<(), RejectReason> {
         // §20.2: Monitor Only = no entries regardless of gates
-        if self.risk_state.lock().map(|g| g.monitor_only).unwrap_or(true) {
+        if self
+            .risk_state
+            .lock()
+            .map(|g| g.monitor_only)
+            .unwrap_or(true)
+        {
             return Err(RejectReason::MonitorOnly);
         }
 
-        let state = self
-            .symbol_states
-            .get(&symbol)
-            .expect("Symbol state should exist");
+        let state = match self.symbol_states.get(&symbol) {
+            Some(s) => s,
+            None => {
+                log::error!("Symbol state missing for symbol_id {}", symbol.0);
+                return Err(RejectReason::Unknown);
+            }
+        };
 
         // 0. Pre-Gate: Tier A Only (User Requirement)
         if state.tier != Tier::A {
@@ -490,7 +510,7 @@ impl TapeEngine {
             state.tape.avg_depth_top3,
         );
         if expected_net_val <= self.pricing_model.min_net_profit_usd {
-            println!(
+            log::debug!(
                 "DEBUG: NetNegative. Shares: {}, Price: {}, Spread: {}, Net: {}, Min: {}",
                 self.last_sizing_shares,
                 state.tape.price,
@@ -534,8 +554,8 @@ impl TapeEngine {
             + (abs_score * self.config.weights.w_abs)
             + (bls_score * self.config.weights.w_bls);
 
-        let total = total.max(0.0).min(100.0); // clamp
-        // NaN guard — defensive programming for corrupted tape metrics
+        let total = total.clamp(0.0, 100.0); // clamp
+                                             // NaN guard — defensive programming for corrupted tape metrics
         let total = if total.is_nan() || total.is_infinite() {
             log::warn!("TapeScore NaN/Inf detected — defaulting to 0.0");
             0.0
@@ -903,7 +923,8 @@ mod tests {
         let result = engine.on_event(&event);
         assert!(
             result == Err(RejectReason::GuardSpread) || result == Err(RejectReason::Liquidity),
-            "Wide spread must be rejected: {:?}", result
+            "Wide spread must be rejected: {:?}",
+            result
         );
     }
 
@@ -915,7 +936,9 @@ mod tests {
         state.tape.spread_cents = 0.02; // normal spread
 
         // Use track_event to advance the GuardEvaluator state
-        let result = engine.guard_evaluator.track_event(sym, 1_700_000_000_000_000);
+        let result = engine
+            .guard_evaluator
+            .track_event(sym, 1_700_000_000_000_000);
         assert!(result.is_ok()); // Should succeed or lazy-create state
     }
 
@@ -938,7 +961,10 @@ mod tests {
         };
         let _ = engine.on_event(&reconnect_event);
         // Position must survive reconnect (not cleared)
-        assert_eq!(engine.symbol_states.get(&sym).map(|s| s.position), Some(100));
+        assert_eq!(
+            engine.symbol_states.get(&sym).map(|s| s.position),
+            Some(100)
+        );
         // ColdStart must reset
         assert_eq!(
             engine.symbol_states.get(&sym).map(|s| s.cold_start_state),
@@ -957,7 +983,8 @@ mod tests {
         let result = engine.on_event(&event);
         assert!(
             result == Err(RejectReason::Regime) || result == Err(RejectReason::MonitorOnly),
-            "RiskOff must block entries: {:?}", result
+            "RiskOff must block entries: {:?}",
+            result
         );
     }
 
@@ -992,20 +1019,32 @@ mod tests {
 
         let event = make_tick_event(sym, 2.50, 0);
         let result = engine.on_event(&event);
-        assert!(result.is_ok(), "Happy path must pass all gates: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Happy path must pass all gates: {:?}",
+            result
+        );
     }
 
     #[test]
     fn integration_full_decision_chain_each_gate_blocks() {
         // Test each gate independently
         let gates: &[(RejectReason, fn(&mut TapeEngine, SymbolId))] = &[
-            (RejectReason::Regime, |e, _| e.update_regime(core_types::RegimeState::RiskOff)),
+            (RejectReason::Regime, |e, _| {
+                e.update_regime(core_types::RegimeState::RiskOff)
+            }),
             (RejectReason::DailyContext, |e, s| {
                 let st = e.symbol_states.get_mut(&s).unwrap();
                 st.daily_context = Some(core_types::DailyContext {
-                    symbol_id: s, state: core_types::ContextState::NoPlay,
-                    volume_profile: core_types::VolumeProfile { current_volume: 0, avg_20d_volume: 1_000_000, is_surge: false },
-                    has_news: false, sector_momentum: None,
+                    symbol_id: s,
+                    state: core_types::ContextState::NoPlay,
+                    volume_profile: core_types::VolumeProfile {
+                        current_volume: 0,
+                        avg_20d_volume: 1_000_000,
+                        is_surge: false,
+                    },
+                    has_news: false,
+                    sector_momentum: None,
                 });
             }),
         ];
@@ -1014,7 +1053,12 @@ mod tests {
             setup_fn(&mut engine, sym);
             let event = make_tick_event(sym, 2.50, 0);
             let result = engine.on_event(&event);
-            assert_eq!(result, Err(*expected_reason), "Gate {:?} must block", expected_reason);
+            assert_eq!(
+                result,
+                Err(*expected_reason),
+                "Gate {:?} must block",
+                expected_reason
+            );
         }
     }
 }

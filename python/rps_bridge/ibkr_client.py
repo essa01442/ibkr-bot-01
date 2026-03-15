@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class IbkrClient:
     def __init__(self, host: str = '127.0.0.1', port: int = 7497, client_id: int = 1,
-                 command_socket_path: str = '/var/run/rps/rps_commands.sock'):
+                 command_socket_path: str = '/tmp/rps/rps_commands.sock'):
         self.ib = IB()
         self.host = host
         self.port = port
@@ -116,7 +116,7 @@ class IbkrClient:
         except OSError as e:
             raise RuntimeError(
                 f"Cannot create command socket directory {sock_dir}: {e}. "
-                "Run as root or create /var/run/rps manually."
+                "Ensure the directory is user-writable or update 'system.runtime_socket_dir' in config.toml."
             ) from e
 
         if sock_path.exists():

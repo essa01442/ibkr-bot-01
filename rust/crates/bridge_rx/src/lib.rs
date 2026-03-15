@@ -41,9 +41,11 @@ pub enum QosPriority {
 impl QosPriority {
     pub fn from_event(event: &Event) -> Self {
         match event.kind {
-            EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::Reject(_) | EventKind::CancelAck(_) | EventKind::CancelReject(_) => {
-                QosPriority::Critical
-            }
+            EventKind::Fill(_)
+            | EventKind::OrderStatus(_)
+            | EventKind::Reject(_)
+            | EventKind::CancelAck(_)
+            | EventKind::CancelReject(_) => QosPriority::Critical,
             EventKind::Tick(_) => QosPriority::High,
             EventKind::L2Delta(_) => QosPriority::Medium,
             EventKind::Snapshot(_) => QosPriority::Low,

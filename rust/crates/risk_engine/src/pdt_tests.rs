@@ -1,6 +1,6 @@
-use core_types::market_day_boundary;
-use chrono::{TimeZone, Utc};
 use super::pdt::PdtGuard;
+use chrono::{TimeZone, Utc};
+use core_types::market_day_boundary;
 
 #[cfg(test)]
 mod tests {

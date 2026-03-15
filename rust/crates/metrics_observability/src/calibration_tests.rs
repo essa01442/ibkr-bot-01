@@ -5,14 +5,23 @@ mod tests {
     #[test]
     fn test_predicted_slippage_zero_fails() {
         let result = CalibrationField::new_real(0.0);
-        assert!(result.is_err(), "Creating Real CalibrationField with 0.0 should return an error");
-        assert_eq!(result.unwrap_err(), "predicted_slippage cannot be 0.0 for non-zero expected price");
+        assert!(
+            result.is_err(),
+            "Creating Real CalibrationField with 0.0 should return an error"
+        );
+        assert_eq!(
+            result.unwrap_err(),
+            "predicted_slippage cannot be 0.0 for non-zero expected price"
+        );
     }
 
     #[test]
     fn test_unavailable_empty_reason_fails() {
         let result = CalibrationField::new_unavailable("   ");
-        assert!(result.is_err(), "Creating Unavailable CalibrationField with empty reason should return an error");
+        assert!(
+            result.is_err(),
+            "Creating Unavailable CalibrationField with empty reason should return an error"
+        );
         assert_eq!(result.unwrap_err(), "Unavailable reason cannot be empty");
     }
 
@@ -29,7 +38,14 @@ mod tests {
         let predicted_field = CalibrationField::new_real(predicted_slip).unwrap();
         let actual_slip: f64 = (fill_price - expected_price).abs(); // 0.05
 
-        logger.record(1, 123456789, 100, expected_price, predicted_field, actual_slip);
+        logger.record(
+            1,
+            123456789,
+            100,
+            expected_price,
+            predicted_field,
+            actual_slip,
+        );
 
         // Ratio should be actual / predicted = 0.05 / 0.02 = 2.5
         let eval_ratio = logger.evaluate();

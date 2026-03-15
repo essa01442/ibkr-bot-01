@@ -21,8 +21,6 @@ use tokio::task;
 use tokio_util::sync::CancellationToken;
 use watchlist_engine::WatchlistSnapshot;
 
-const RISK_STATE_PATH: &str = "/var/run/rps/risk_state.json";
-
 /// Stack-allocated idempotency key — zero heap allocation per §5.3.
 /// Format: "SYM_ID-TS_MICROS" as ASCII bytes, optionally with a prefix.
 fn idempotency_key_stack(prefix: &str, symbol_id: u32, ts: u64) -> arrayvec::ArrayString<64> {
@@ -45,7 +43,9 @@ fn now_micros() -> u64 {
 
 pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     if config.risk.account_capital_usd <= 0.0 {
-        return Err("account_capital_usd must be positive — check default.toml [risk] section".into());
+        return Err(
+            "account_capital_usd must be positive — check default.toml [risk] section".into(),
+        );
     }
     if config.risk.max_daily_loss_usd <= 0.0 {
         return Err("max_daily_loss_usd must be positive".into());
@@ -57,8 +57,12 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
+    let socket_dir = &config.system.runtime_socket_dir;
+    let risk_state_path_str = format!("{}/risk_state.json", socket_dir);
+    let risk_state_path = Path::new(&risk_state_path_str);
+
     // Ensure runtime directory exists
-    if let Some(parent) = Path::new(RISK_STATE_PATH).parent() {
+    if let Some(parent) = risk_state_path.parent() {
         if !parent.exists() {
             std::fs::create_dir_all(parent)?;
             std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
@@ -76,9 +80,9 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let account_capital = config.risk.account_capital_usd;
 
     // Load Risk State from file or create new
-    let risk_state_inner = if Path::new(RISK_STATE_PATH).exists() {
-        log::info!("Loading persistent risk state from {}", RISK_STATE_PATH);
-        match risk_engine::RiskState::load_from_file(Path::new(RISK_STATE_PATH)) {
+    let risk_state_inner = if risk_state_path.exists() {
+        log::info!("Loading persistent risk state from {}", risk_state_path_str);
+        match risk_engine::RiskState::load_from_file(risk_state_path) {
             Ok(mut state) => {
                 // Override config values
                 state.initial_max_daily_loss = config.risk.max_daily_loss_usd;
@@ -159,6 +163,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let mut oms_order_rx = channels.oms_order_rx;
     let _oms_tx = channels.oms_market_tx.clone();
     let shutdown_token_oms = shutdown_token.clone();
+    let config_clone_for_oms = config.clone();
     task::spawn(async move {
         log::info!("OMS Task started");
         let mut calib_logger = metrics_observability::CalibrationLogger::new(20);
@@ -172,15 +177,21 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             avg_cost: f64,
             qty: i32,
         }
-        let mut oms_positions: std::collections::HashMap<core_types::SymbolId, OmsPosition> = std::collections::HashMap::new();
+        let mut oms_positions: std::collections::HashMap<core_types::SymbolId, OmsPosition> =
+            std::collections::HashMap::new();
 
+        let cmd_sock_path = format!(
+            "{}/rps_commands.sock",
+            config_clone_for_oms.system.runtime_socket_dir
+        );
         // Instantiate BridgeCmdSender once outside the loop for performance
         #[cfg(not(feature = "paper_mode"))]
-        let cmd_sender = bridge_rx::cmd_sender::BridgeCmdSender::new("/var/run/rps/rps_commands.sock")
+        let cmd_sender = bridge_rx::cmd_sender::BridgeCmdSender::new(&cmd_sock_path)
             .map_err(|e| {
                 log::error!("Failed to initialize BridgeCmdSender: {}", e);
                 e
-            }).ok();
+            })
+            .ok();
 
         loop {
             tokio::select! {
@@ -246,7 +257,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 Some(event) = oms_rx.recv() => {
                     match event.kind {
                         EventKind::Fill(fill) => {
-                            oms.handle_fill(fill.clone(), event.ts_rx);
+                            oms.handle_fill(fill, event.ts_rx);
 
                             // Calculate trade_pnl/slippage locally for OMS task tracking
                             let state = oms_positions.entry(event.symbol_id).or_insert(OmsPosition {
@@ -271,7 +282,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
                                 if same_side {
                                     state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
-                                        state.qty.abs() as u32, state.avg_cost,
+                                        state.qty.unsigned_abs(), state.avg_cost,
                                         fill.size, fill_price
                                     );
                                     state.qty += signed_fill_size;
@@ -295,7 +306,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                         calib_logger.record(
                                             event.symbol_id.0,
                                             event.ts_src,
-                                            close_qty.unsigned_abs() as u32,
+                                            close_qty.unsigned_abs(),
                                             avg_cost,
                                             metrics_observability::CalibrationField::Unavailable {
                                                 reason: "Real expected_price currently isolated in TradeJournal mapping; deferring computation.".to_string()
@@ -461,14 +472,19 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             || (state.qty < 0 && signed_fill_size < 0);
 
                         if same_side {
-                            state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
-                                state.qty.abs() as u32, state.avg_cost,
-                                fill.size, fill_price
-                            );
+                            state.avg_cost =
+                                core_types::trade_accounting::compute_weighted_avg_cost(
+                                    state.qty.unsigned_abs(),
+                                    state.avg_cost,
+                                    fill.size,
+                                    fill_price,
+                                );
                             state.qty += signed_fill_size;
                         } else {
                             let trade_pnl = core_types::trade_accounting::compute_realized_pnl(
-                                state.qty, state.avg_cost, &fill
+                                state.qty,
+                                state.avg_cost,
+                                &fill,
                             );
                             state.realized_pnl += trade_pnl;
                             global_realized_pnl += trade_pnl;
@@ -540,7 +556,11 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap_or(0.0);
                     if pos_after > 0 && entry_cost > 0.0 {
                         let current_price = fill.price;
-                        let gross_total = core_types::trade_accounting::compute_unrealized_pnl(pos_after, entry_cost, current_price);
+                        let gross_total = core_types::trade_accounting::compute_unrealized_pnl(
+                            pos_after,
+                            entry_cost,
+                            current_price,
+                        );
 
                         let price_move_pct = if entry_cost > 0.0 {
                             (current_price - entry_cost) / entry_cost
@@ -568,7 +588,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     take_profit_price: None,
                                     stop_loss_price: None,
                                 };
-                                let _ = oms_order_tx_clone.try_send(core_types::OmsCommand::NewOrder(partial_req));
+                                let _ = oms_order_tx_clone
+                                    .try_send(core_types::OmsCommand::NewOrder(partial_req));
                                 log::info!(
                                     "PARTIAL EXIT: {:?} qty={} @ {:.4} (gross={:.2}, move={:.2}%)",
                                     event.symbol_id,
@@ -669,8 +690,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         Some(e) => e,
                         None => break,
                     };
-            match event.kind {
-                EventKind::Tick(tick) => {
+                    match event.kind {
+                        EventKind::Tick(tick) => {
                     // Subscription count tracking
                     if watchlist.get_tier(event.symbol_id) == Some(core_types::Tier::A) {
                         // Already Tier A — count it
@@ -692,7 +713,6 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     (subscription_count * 100 / sub_limit)
                                 );
                             }
-                            match watchlist.promote(event.symbol_id, &mut Some(&mut metrics_collector)) {
                             let mut local_metrics = metrics_observability::MetricsCollector::default();
                             match watchlist.promote(event.symbol_id, &mut Some(&mut local_metrics)) {
                                 Ok(()) => {
@@ -800,22 +820,20 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // Process Symbol Lifecycle periodically on Heartbeat
-                    let mut local_metrics = metrics_observability::MetricsCollector::default();
                     watchlist.process_lifecycle(
                         config.watchlist.demotion_cycles,
                         config.watchlist.eviction_cycles,
                         config.watchlist.min_quality_score,
                         config.watchlist.min_volume,
                         &mut metrics_collector,
-                        &mut local_metrics,
                     );
                 }
                 _ => {}
             }
+                }
+            }
             slow_snapshot_writer.store(Arc::new(watchlist.snapshot()));
-            }
-            }
-        }
+        } // closes loop
     });
 
     // 5. Spawn FastLoop Task
@@ -824,6 +842,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     let risk_state_fast = risk_state.clone();
     let order_tx = channels.oms_order_tx;
     let shutdown_token_fast = shutdown_token.clone();
+    let runtime_socket_dir = config.system.runtime_socket_dir.clone();
 
     task::spawn(async move {
         log::info!("FastLoop Task started");
@@ -1191,7 +1210,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
                 // Access mutex to save
                 if let Ok(guard) = tape_engine.risk_state.lock() {
-                    if let Err(e) = guard.save_to_file(Path::new(RISK_STATE_PATH)) {
+                    let save_path = format!("{}/risk_state.json", runtime_socket_dir);
+                    if let Err(e) = guard.save_to_file(Path::new(&save_path)) {
                         log::error!("Failed to persist risk state: {}", e);
                     }
                 }
@@ -1224,7 +1244,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Snapshot(_) => {
                     let _ = slow_tx.try_send(event.clone());
                 }
-                EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::CancelAck(_) | EventKind::CancelReject(_) => {
+                EventKind::Fill(_)
+                | EventKind::OrderStatus(_)
+                | EventKind::CancelAck(_)
+                | EventKind::CancelReject(_) => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
                     if let EventKind::Fill(_) = event.kind {
@@ -1280,7 +1303,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
         rx: dummy_rx,
     };
 
-    let mut bridge_task = bridge_rx::BridgeRxTask::new("/var/run/rps/rps_uds.sock", bridge_bus)?;
+    let rx_sock_path = format!("{}/rps_uds.sock", config.system.runtime_socket_dir);
+    let mut bridge_task = bridge_rx::BridgeRxTask::new(&rx_sock_path, bridge_bus)?;
     bridge_task.set_degraded_notifier(degraded_tx);
     task::spawn(async move {
         bridge_task.run().await;

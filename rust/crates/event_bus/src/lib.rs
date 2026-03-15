@@ -4,7 +4,7 @@
 //! Manages communication channels between different parts of the system.
 //! Defines the topology of the application's task graph.
 
-use core_types::{Event, OrderRequest};
+use core_types::Event;
 use tokio::sync::mpsc;
 
 /// Configuration for channel sizes.

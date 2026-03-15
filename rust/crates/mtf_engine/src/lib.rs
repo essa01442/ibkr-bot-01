@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MtfParams {
-    pub require_all: bool, // Strict mode?
+    pub require_all: bool,            // Strict mode?
     pub stale_data_threshold_ms: u64, // Threshold for data staleness
 }
 
@@ -110,26 +110,36 @@ impl MtfEngine {
             self.current_price > self.weekly_ema
         } else {
             if ema_stale && self.last_weekly_ema_ts > 0 {
-                log::warn!("MTF Engine: Weekly EMA data is stale for symbol {:?}", self.symbol_id);
+                log::warn!(
+                    "MTF Engine: Weekly EMA data is stale for symbol {:?}",
+                    self.symbol_id
+                );
             }
             false
         };
 
         // Daily Resistance: Cleared if price > resistance
-        let daily_resistance_cleared = if !res_stale && self.daily_resistance > 0.0 && self.daily_resistance < f64::MAX {
-            self.current_price > self.daily_resistance
-        } else {
-            if res_stale && self.last_daily_res_ts > 0 {
-                log::warn!("MTF Engine: Daily Resistance data is stale for symbol {:?}", self.symbol_id);
-            }
-            false // No resistance data or stale
-        };
+        let daily_resistance_cleared =
+            if !res_stale && self.daily_resistance > 0.0 && self.daily_resistance < f64::MAX {
+                self.current_price > self.daily_resistance
+            } else {
+                if res_stale && self.last_daily_res_ts > 0 {
+                    log::warn!(
+                        "MTF Engine: Daily Resistance data is stale for symbol {:?}",
+                        self.symbol_id
+                    );
+                }
+                false // No resistance data or stale
+            };
 
         let structure_4h_bullish = if !h4_stale {
             self.structure_4h_bullish
         } else {
             if h4_stale && self.last_4h_ts > 0 {
-                log::warn!("MTF Engine: 4H structure data is stale for symbol {:?}", self.symbol_id);
+                log::warn!(
+                    "MTF Engine: 4H structure data is stale for symbol {:?}",
+                    self.symbol_id
+                );
             }
             false
         };
@@ -138,16 +148,27 @@ impl MtfEngine {
             self.pullback_15m_valid
         } else {
             if m15_stale && self.last_15m_ts > 0 {
-                log::warn!("MTF Engine: 15m pullback data is stale for symbol {:?}", self.symbol_id);
+                log::warn!(
+                    "MTF Engine: 15m pullback data is stale for symbol {:?}",
+                    self.symbol_id
+                );
             }
             false
         };
 
         let mut score = 0;
-        if weekly_trend_confirmed { score += 1; }
-        if daily_resistance_cleared { score += 1; }
-        if structure_4h_bullish { score += 1; }
-        if pullback_15m_valid { score += 1; }
+        if weekly_trend_confirmed {
+            score += 1;
+        }
+        if daily_resistance_cleared {
+            score += 1;
+        }
+        if structure_4h_bullish {
+            score += 1;
+        }
+        if pullback_15m_valid {
+            score += 1;
+        }
 
         let mtf_pass = if self.params.require_all {
             score == 4
@@ -171,7 +192,10 @@ mod tests {
 
     #[test]
     fn test_mtf_evaluation() {
-        let params = MtfParams { require_all: true, stale_data_threshold_ms: 3600000 };
+        let params = MtfParams {
+            require_all: true,
+            stale_data_threshold_ms: 3600000,
+        };
         let symbol = SymbolId(1);
         let mut engine = MtfEngine::new(symbol, params);
 
@@ -199,7 +223,10 @@ mod tests {
 
     #[test]
     fn test_mtf_fail() {
-        let params = MtfParams { require_all: true, stale_data_threshold_ms: 3600000 };
+        let params = MtfParams {
+            require_all: true,
+            stale_data_threshold_ms: 3600000,
+        };
         let mut engine = MtfEngine::new(SymbolId(1), params);
         engine.update_price(10.0);
 
@@ -215,7 +242,10 @@ mod tests {
 
     #[test]
     fn test_mtf_stale_data() {
-        let params = MtfParams { require_all: true, stale_data_threshold_ms: 1000 }; // 1 sec threshold
+        let params = MtfParams {
+            require_all: true,
+            stale_data_threshold_ms: 1000,
+        }; // 1 sec threshold
         let mut engine = MtfEngine::new(SymbolId(1), params);
         engine.update_price(10.0);
 
@@ -239,7 +269,10 @@ mod tests {
 
     #[test]
     fn test_zero_default_prevention() {
-        let params = MtfParams { require_all: true, stale_data_threshold_ms: 3600000 };
+        let params = MtfParams {
+            require_all: true,
+            stale_data_threshold_ms: 3600000,
+        };
         let mut engine = MtfEngine::new(SymbolId(1), params);
         engine.update_price(10.0);
 

@@ -2,7 +2,12 @@ use crate::{FillData, Side};
 
 /// Computes the new weighted average cost when adding to a position.
 /// Returns the new average cost.
-pub fn compute_weighted_avg_cost(current_qty: u32, current_avg_cost: f64, new_qty: u32, new_price: f64) -> f64 {
+pub fn compute_weighted_avg_cost(
+    current_qty: u32,
+    current_avg_cost: f64,
+    new_qty: u32,
+    new_price: f64,
+) -> f64 {
     if current_qty == 0 {
         return new_price;
     }
@@ -13,12 +18,16 @@ pub fn compute_weighted_avg_cost(current_qty: u32, current_avg_cost: f64, new_qt
 
 /// Computes the realized PnL of a closing fill against an open position.
 /// Returns the realized PnL in USD. Negative means loss.
-pub fn compute_realized_pnl(position_qty: i32, position_avg_cost: f64, close_fill: &FillData) -> f64 {
+pub fn compute_realized_pnl(
+    position_qty: i32,
+    position_avg_cost: f64,
+    close_fill: &FillData,
+) -> f64 {
     // Only compute realized if it's actually closing the position (opposing side)
     // If position > 0 (long), closing side is Ask.
     // If position < 0 (short), closing side is Bid.
-    let is_closing = (position_qty > 0 && close_fill.side == Side::Ask) ||
-                     (position_qty < 0 && close_fill.side == Side::Bid);
+    let is_closing = (position_qty > 0 && close_fill.side == Side::Ask)
+        || (position_qty < 0 && close_fill.side == Side::Bid);
 
     if !is_closing {
         return 0.0;
@@ -37,7 +46,11 @@ pub fn compute_realized_pnl(position_qty: i32, position_avg_cost: f64, close_fil
 }
 
 /// Computes the unrealized PnL of an open position at the current market price.
-pub fn compute_unrealized_pnl(position_qty: i32, position_avg_cost: f64, current_price: f64) -> f64 {
+pub fn compute_unrealized_pnl(
+    position_qty: i32,
+    position_avg_cost: f64,
+    current_price: f64,
+) -> f64 {
     if position_qty == 0 {
         return 0.0;
     }
@@ -152,17 +165,31 @@ mod regression_tests {
             if let Ok(content) = fs::read_to_string(&target) {
                 for (line_no, line) in content.lines().enumerate() {
                     let text = line.trim();
-                    if text.starts_with("//") { continue; } // Skip comments
+                    if text.starts_with("//") {
+                        continue;
+                    } // Skip comments
 
                     for pattern in &patterns {
-                        if text.contains(pattern) && !text.contains("compute_realized_pnl") && !text.contains("compute_weighted_avg_cost") {
-                            violations.push(format!("{}:{}: found forbidden math '{}'", target.display(), line_no + 1, pattern));
+                        if text.contains(pattern)
+                            && !text.contains("compute_realized_pnl")
+                            && !text.contains("compute_weighted_avg_cost")
+                        {
+                            violations.push(format!(
+                                "{}:{}: found forbidden math '{}'",
+                                target.display(),
+                                line_no + 1,
+                                pattern
+                            ));
                         }
                     }
                 }
             }
         }
 
-        assert!(violations.is_empty(), "Found rogue PnL math outside trade_accounting:\n{:#?}", violations);
+        assert!(
+            violations.is_empty(),
+            "Found rogue PnL math outside trade_accounting:\n{:#?}",
+            violations
+        );
     }
 }

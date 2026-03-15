@@ -43,7 +43,9 @@ fn now_micros() -> u64 {
 
 pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
     if config.risk.account_capital_usd <= 0.0 {
-        return Err("account_capital_usd must be positive — check default.toml [risk] section".into());
+        return Err(
+            "account_capital_usd must be positive — check default.toml [risk] section".into(),
+        );
     }
     if config.risk.max_daily_loss_usd <= 0.0 {
         return Err("max_daily_loss_usd must be positive".into());
@@ -175,8 +177,13 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             avg_cost: f64,
             qty: i32,
         }
-        let mut oms_positions: std::collections::HashMap<core_types::SymbolId, OmsPosition> = std::collections::HashMap::new();
+        let mut oms_positions: std::collections::HashMap<core_types::SymbolId, OmsPosition> =
+            std::collections::HashMap::new();
 
+        let cmd_sock_path = format!(
+            "{}/rps_commands.sock",
+            config_clone_for_oms.system.runtime_socket_dir
+        );
         let cmd_sock_path = format!("{}/rps_commands.sock", config_clone_for_oms.system.runtime_socket_dir);
         // Instantiate BridgeCmdSender once outside the loop for performance
         #[cfg(not(feature = "paper_mode"))]
@@ -184,7 +191,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| {
                 log::error!("Failed to initialize BridgeCmdSender: {}", e);
                 e
-            }).ok();
+            })
+            .ok();
 
         loop {
             tokio::select! {
@@ -250,7 +258,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 Some(event) = oms_rx.recv() => {
                     match event.kind {
                         EventKind::Fill(fill) => {
-                            oms.handle_fill(fill.clone(), event.ts_rx);
+                            oms.handle_fill(fill, event.ts_rx);
 
                             // Calculate trade_pnl/slippage locally for OMS task tracking
                             let state = oms_positions.entry(event.symbol_id).or_insert(OmsPosition {
@@ -275,7 +283,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
 
                                 if same_side {
                                     state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
-                                        state.qty.abs() as u32, state.avg_cost,
+                                        state.qty.unsigned_abs(), state.avg_cost,
                                         fill.size, fill_price
                                     );
                                     state.qty += signed_fill_size;
@@ -299,7 +307,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                         calib_logger.record(
                                             event.symbol_id.0,
                                             event.ts_src,
-                                            close_qty.unsigned_abs() as u32,
+                                            close_qty.unsigned_abs(),
                                             avg_cost,
                                             metrics_observability::CalibrationField::Unavailable {
                                                 reason: "Real expected_price currently isolated in TradeJournal mapping; deferring computation.".to_string()
@@ -465,14 +473,19 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                             || (state.qty < 0 && signed_fill_size < 0);
 
                         if same_side {
-                            state.avg_cost = core_types::trade_accounting::compute_weighted_avg_cost(
-                                state.qty.abs() as u32, state.avg_cost,
-                                fill.size, fill_price
-                            );
+                            state.avg_cost =
+                                core_types::trade_accounting::compute_weighted_avg_cost(
+                                    state.qty.unsigned_abs(),
+                                    state.avg_cost,
+                                    fill.size,
+                                    fill_price,
+                                );
                             state.qty += signed_fill_size;
                         } else {
                             let trade_pnl = core_types::trade_accounting::compute_realized_pnl(
-                                state.qty, state.avg_cost, &fill
+                                state.qty,
+                                state.avg_cost,
+                                &fill,
                             );
                             state.realized_pnl += trade_pnl;
                             global_realized_pnl += trade_pnl;
@@ -544,7 +557,11 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                         .unwrap_or(0.0);
                     if pos_after > 0 && entry_cost > 0.0 {
                         let current_price = fill.price;
-                        let gross_total = core_types::trade_accounting::compute_unrealized_pnl(pos_after, entry_cost, current_price);
+                        let gross_total = core_types::trade_accounting::compute_unrealized_pnl(
+                            pos_after,
+                            entry_cost,
+                            current_price,
+                        );
 
                         let price_move_pct = if entry_cost > 0.0 {
                             (current_price - entry_cost) / entry_cost
@@ -572,7 +589,8 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                                     take_profit_price: None,
                                     stop_loss_price: None,
                                 };
-                                let _ = oms_order_tx_clone.try_send(core_types::OmsCommand::NewOrder(partial_req));
+                                let _ = oms_order_tx_clone
+                                    .try_send(core_types::OmsCommand::NewOrder(partial_req));
                                 log::info!(
                                     "PARTIAL EXIT: {:?} qty={} @ {:.4} (gross={:.2}, move={:.2}%)",
                                     event.symbol_id,
@@ -1227,7 +1245,10 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
                 EventKind::Snapshot(_) => {
                     let _ = slow_tx.try_send(event.clone());
                 }
-                EventKind::Fill(_) | EventKind::OrderStatus(_) | EventKind::CancelAck(_) | EventKind::CancelReject(_) => {
+                EventKind::Fill(_)
+                | EventKind::OrderStatus(_)
+                | EventKind::CancelAck(_)
+                | EventKind::CancelReject(_) => {
                     let _ = oms_tx.try_send(event.clone());
                     let _ = risk_tx.try_send(event.clone());
                     if let EventKind::Fill(_) = event.kind {

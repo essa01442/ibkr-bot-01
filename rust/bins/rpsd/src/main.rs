@@ -9,10 +9,14 @@ mod dashboard;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Catch all panics — log them before crash, enable post-mortem analysis
     std::panic::set_hook(Box::new(|info| {
-        let location = info.location().map(|l| format!("{}:{}", l.file(), l.line()))
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
             .unwrap_or_else(|| "unknown".to_string());
-        let payload = info.payload()
-            .downcast_ref::<&str>().map(|s| *s)
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
             .unwrap_or("non-string panic payload");
         log::error!("PANIC at {}: {}", location, payload);
@@ -31,6 +35,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create broadcast channel for WebSocket server
     let (tx, _rx) = broadcast::channel(100);
+    let dashboard_state = Arc::new(dashboard::DashboardState {
+        tx: tx.clone(),
+        auth_token: config.dashboard.auth_token.clone(),
+    });
     let dashboard_state = Arc::new(dashboard::DashboardState { tx: tx.clone(), auth_token: config.dashboard.auth_token.clone() });
 
     // Ensure we do not broadcast synthetic 'Normal' / 0.0 PNL as live data
@@ -39,7 +47,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             interval.tick().await;
             let snapshot = dashboard::SystemSnapshot {
-                ts_ms: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
+                ts_ms: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64,
                 regime: "NOT_WIRED".to_string(),
                 data_quality: "NOT_WIRED".to_string(),
                 monitor_only: true, // fail-safe
@@ -64,6 +75,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let is_localhost = bind_addr.starts_with("127.0.0.1") || bind_addr.starts_with("localhost");
 
     if !is_localhost {
+        log::warn!(
+            "SECURITY WARNING: Dashboard is configured to bind to a non-localhost address ({})",
+            bind_addr
+        );
         log::warn!("SECURITY WARNING: Dashboard is configured to bind to a non-localhost address ({})", bind_addr);
         if !config.dashboard.allow_insecure_remote {
             log::error!("FATAL: ws:// on non-localhost is disabled by default for security. Set dashboard.allow_insecure_remote = true to override.");

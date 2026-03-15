@@ -15,6 +15,8 @@ fn load_fixture(name: &str) -> Vec<u8> {
     path.push("ipc");
     path.push(name);
 
+    let mut file =
+        File::open(&path).unwrap_or_else(|_| panic!("Failed to open fixture: {:?}", path));
     let mut file = File::open(&path).unwrap_or_else(|_| panic!("Failed to open fixture: {:?}", path));
     let mut buffer = Vec::new();
     file.read_to_end(&mut buffer).unwrap();
@@ -28,6 +30,25 @@ fn validate_event(event: &Event) -> bool {
         .unwrap_or_default()
         .as_micros() as u64;
 
+    if event.symbol_id.0 == 0 {
+        return false;
+    }
+
+    // Stale check (older than 5s)
+    if now_us > event.ts_src && now_us - event.ts_src > 5_000_000 {
+        return false;
+    }
+
+    // Future check (allowing small drift)
+    if event.ts_src == 0 || event.ts_src > now_us + 5_000_000 {
+        return false;
+    }
+
+    match event.kind {
+        EventKind::Tick(tick) => {
+            if tick.price <= 0.0 || tick.price > 1000.0 || tick.size == 0 {
+                return false;
+            }
     if event.symbol_id.0 == 0 { return false; }
 
     // Stale check (older than 5s)
@@ -61,6 +82,10 @@ fn test_invalid_tick_fixture_rejected() {
     let event: Event = rmp_serde::from_slice(&payload).unwrap();
 
     // Domain validation should fail due to 0.0 price
+    assert!(
+        !validate_event(&event),
+        "Invalid tick should fail domain validation"
+    );
     assert!(!validate_event(&event), "Invalid tick should fail domain validation");
 }
 
@@ -70,6 +95,10 @@ fn test_invalid_timestamp_tick() {
     let event: Event = rmp_serde::from_slice(&payload).unwrap();
 
     // Domain validation should fail due to future ts_src
+    assert!(
+        !validate_event(&event),
+        "Event with future timestamp should be rejected"
+    );
     assert!(!validate_event(&event), "Event with future timestamp should be rejected");
 }
 
@@ -88,6 +117,10 @@ fn test_invalid_new_order_fixture() {
     if let Ok(OmsCommand::NewOrder(order)) = cmd {
         // Validation logic for Orders: Qty > 0
         let is_valid = order.qty > 0;
+        assert!(
+            !is_valid,
+            "Invalid new order with qty=0 should fail domain validation"
+        );
         assert!(!is_valid, "Invalid new order with qty=0 should fail domain validation");
     } else {
         panic!("Should have parsed but with invalid data");
@@ -99,6 +132,10 @@ fn test_invalid_enum_order() {
     let payload = load_fixture("invalid_enum_order.msgpack");
     // Should fail purely at parsing layer due to unknown `Side` enum variant (99)
     let cmd: Result<OmsCommand, _> = rmp_serde::from_slice(&payload);
+    assert!(
+        cmd.is_err(),
+        "Order with invalid enum variant must fail to parse"
+    );
     assert!(cmd.is_err(), "Order with invalid enum variant must fail to parse");
 }
 
@@ -114,6 +151,10 @@ fn test_invalid_cancel_order_fixture() {
     let payload = load_fixture("invalid_cancel_order.msgpack");
     // Missing required field "order_id"
     let cmd: Result<OmsCommand, _> = rmp_serde::from_slice(&payload);
+    assert!(
+        cmd.is_err(),
+        "CancelOrder missing required field must fail to parse"
+    );
     assert!(cmd.is_err(), "CancelOrder missing required field must fail to parse");
 }
 
@@ -121,6 +162,16 @@ fn test_invalid_cancel_order_fixture() {
 fn test_malformed_payload_rejection() {
     let payload: [u8; 8] = [0xFF, 0x00, 0x12, 0x44, 0x99, 0xAA, 0xBB, 0xCC];
     let result: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(
+        result.is_err(),
+        "Malformed payload must result in a clean parsing error"
+    );
+
+    let cmd_result: Result<OmsCommand, _> = rmp_serde::from_slice(&payload);
+    assert!(
+        cmd_result.is_err(),
+        "Malformed payload must result in a clean parsing error"
+    );
     assert!(result.is_err(), "Malformed payload must result in a clean parsing error");
 
     let cmd_result: Result<OmsCommand, _> = rmp_serde::from_slice(&payload);
@@ -163,10 +214,105 @@ fn test_backward_compatibility() {
             size: 100,
             flags: 0,
             unknown_new_field: "v1_data".to_string(),
+        }),
         })
     };
 
     let payload = rmp_serde::to_vec_named(&v1_event).unwrap();
     let parsed: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(
+        parsed.is_ok(),
+        "Should parse ignoring unknown fields: {:?}",
+        parsed.err()
+    );
+}
+// New invariant tests for the additional fixtures
+#[test]
+fn test_valid_l2delta_fixture() {
+    let payload = load_fixture("valid_l2delta.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
+}
+
+#[test]
+fn test_invalid_l2delta_fixture() {
+    let payload = load_fixture("invalid_l2delta.msgpack");
+    let event: Event = rmp_serde::from_slice(&payload).unwrap();
+    let is_valid = match event.kind {
+        EventKind::L2Delta(l2) => l2.price > 0.0,
+        _ => false,
+    };
+    assert!(!is_valid);
+}
+
+#[test]
+fn test_valid_snapshot_fixture() {
+    let payload = load_fixture("valid_snapshot.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
+}
+
+#[test]
+fn test_invalid_snapshot_fixture() {
+    let payload = load_fixture("invalid_snapshot.msgpack");
+    let event: Event = rmp_serde::from_slice(&payload).unwrap();
+    let is_valid = match event.kind {
+        EventKind::Snapshot(snap) => snap.bid_price > 0.0 && snap.bid_price < snap.ask_price,
+        _ => false,
+    };
+    assert!(!is_valid);
+}
+
+#[test]
+fn test_valid_fill_fixture() {
+    let payload = load_fixture("valid_fill.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
+}
+
+#[test]
+fn test_invalid_fill_fixture() {
+    let payload = load_fixture("invalid_fill.msgpack");
+    let event: Event = rmp_serde::from_slice(&payload).unwrap();
+    let is_valid = match event.kind {
+        EventKind::Fill(f) => f.price > 0.0 && f.price < 100_000.0 && f.size > 0,
+        _ => false,
+    };
+    assert!(!is_valid);
+}
+
+#[test]
+fn test_valid_order_status_fixture() {
+    let payload = load_fixture("valid_order_status.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
+}
+
+#[test]
+fn test_valid_reject_fixture() {
+    let payload = load_fixture("valid_reject.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
+}
+
+#[test]
+fn test_valid_cancel_ack_fixture() {
+    let payload = load_fixture("valid_cancel_ack.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
+}
+
+#[test]
+fn test_valid_cancel_reject_fixture() {
+    let payload = load_fixture("valid_cancel_reject.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
+}
+
+#[test]
+fn test_valid_heartbeat_fixture() {
+    let payload = load_fixture("valid_heartbeat.msgpack");
+    let event: Result<Event, _> = rmp_serde::from_slice(&payload);
+    assert!(event.is_ok());
     assert!(parsed.is_ok(), "Should parse ignoring unknown fields: {:?}", parsed.err());
 }

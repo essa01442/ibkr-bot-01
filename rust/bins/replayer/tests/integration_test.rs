@@ -1,6 +1,6 @@
-use std::process::Command;
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
 
 fn get_replayer_bin() -> PathBuf {
     let mut path = std::env::current_exe().unwrap();
@@ -26,8 +26,15 @@ fn test_replayer_runs_without_panic() {
         .output()
         .expect("Failed to execute replayer");
 
-    assert!(output.status.success(), "Replayer crashed or failed: {:?}", String::from_utf8_lossy(&output.stderr));
-    assert!(PathBuf::from(out_json).exists(), "Output JSON was not created");
+    assert!(
+        output.status.success(),
+        "Replayer crashed or failed: {:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        PathBuf::from(out_json).exists(),
+        "Output JSON was not created"
+    );
 }
 
 #[test]
@@ -40,8 +47,16 @@ fn test_replayer_deterministic() {
     let _ = fs::remove_file(out1);
     let _ = fs::remove_file(out2);
 
-    let _ = Command::new(&bin).arg(sample_csv).arg(out1).output().unwrap();
-    let _ = Command::new(&bin).arg(sample_csv).arg(out2).output().unwrap();
+    let _ = Command::new(&bin)
+        .arg(sample_csv)
+        .arg(out1)
+        .output()
+        .unwrap();
+    let _ = Command::new(&bin)
+        .arg(sample_csv)
+        .arg(out2)
+        .output()
+        .unwrap();
 
     let output = Command::new(&bin)
         .arg("--compare")
@@ -51,8 +66,15 @@ fn test_replayer_deterministic() {
         .unwrap();
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(output.status.success(), "Deterministic comparison failed: {}", stdout);
-    assert!(stdout.contains("PASS: ≥ 99% match"), "Did not pass 99% threshold");
+    assert!(
+        output.status.success(),
+        "Deterministic comparison failed: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("PASS: ≥ 99% match"),
+        "Did not pass 99% threshold"
+    );
 }
 
 #[test]
@@ -66,7 +88,11 @@ fn test_replayer_detects_parameter_change() {
     let _ = fs::remove_file(out_altered);
 
     // Standard run
-    let _ = Command::new(&bin).arg(sample_csv).arg(out_normal).output().unwrap();
+    let _ = Command::new(&bin)
+        .arg(sample_csv)
+        .arg(out_normal)
+        .output()
+        .unwrap();
 
     // Create altered config
     let mut config_path = PathBuf::from("configs/default.toml");
@@ -79,7 +105,8 @@ fn test_replayer_detects_parameter_change() {
     let config_str = fs::read_to_string(&config_path).unwrap();
     // Change tape threshold to something lower so maybe we pass TapeScoreLow (it scored 10.4).
     // Let's change tape_threshold_normal to 0, which will let it pass TapeScoreLow, but then it'll fail at NetNegative.
-    let altered_config = config_str.replace("tape_threshold_normal = 72", "tape_threshold_normal = 0");
+    let altered_config =
+        config_str.replace("tape_threshold_normal = 72", "tape_threshold_normal = 0");
 
     let altered_path = "tests/altered.toml";
     fs::write(&altered_path, altered_config).unwrap();
@@ -103,5 +130,9 @@ fn test_replayer_detects_parameter_change() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     // They should NOT match, meaning the replayer correctly picked up the parameter change
-    assert!(stdout.contains("FAIL: match < 99% threshold"), "Replayer did not detect parameter change. Stdout: {}", stdout);
+    assert!(
+        stdout.contains("FAIL: match < 99% threshold"),
+        "Replayer did not detect parameter change. Stdout: {}",
+        stdout
+    );
 }

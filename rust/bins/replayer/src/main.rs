@@ -26,7 +26,7 @@ struct TickRecord {
 struct GoldenDecision {
     ts_src: u64,
     symbol_id: u32,
-    action: String,    // "ENTER" or "REJECT"
+    action: String, // "ENTER" or "REJECT"
     reject_reason: Option<String>,
     tape_score: f64,
     price: f64,
@@ -66,8 +66,8 @@ fn main() -> anyhow::Result<()> {
 
     let config_str = std::fs::read_to_string(&config_path)
         .map_err(|e| anyhow::anyhow!("{:?} must exist: {}", config_path, e))?;
-    let _config: core_types::AppConfig = toml::from_str(&config_str)
-        .map_err(|e| anyhow::anyhow!("config must parse: {}", e))?;
+    let _config: core_types::AppConfig =
+        toml::from_str(&config_str).map_err(|e| anyhow::anyhow!("config must parse: {}", e))?;
 
     // Let's use the loaded config
     let mut risk_state = risk_engine::RiskState::new(
@@ -89,12 +89,8 @@ fn main() -> anyhow::Result<()> {
         min_net_profit_usd: _config.pricing.min_net_profit_usd,
     };
 
-    let mut tape_engine = tape_engine::TapeEngine::new(
-        risk_arc,
-        guard_config,
-        _config.tape.clone(),
-        pricing_model,
-    );
+    let mut tape_engine =
+        tape_engine::TapeEngine::new(risk_arc, guard_config, _config.tape.clone(), pricing_model);
 
     // Read tick data
     let mut rdr = csv::Reader::from_path(&tick_file)?;
@@ -121,13 +117,16 @@ fn main() -> anyhow::Result<()> {
             sector_momentum: None,
         });
 
-        tape_engine.update_mtf_analysis(SymbolId(tick.symbol_id), core_types::MtfAnalysis {
-            weekly_trend_confirmed: true,
-            daily_resistance_cleared: true,
-            structure_4h_bullish: true,
-            pullback_15m_valid: true,
-            mtf_pass: true,
-        });
+        tape_engine.update_mtf_analysis(
+            SymbolId(tick.symbol_id),
+            core_types::MtfAnalysis {
+                weekly_trend_confirmed: true,
+                daily_resistance_cleared: true,
+                structure_4h_bullish: true,
+                pullback_15m_valid: true,
+                mtf_pass: true,
+            },
+        );
 
         // Set to Tier A and FullActive to bypass cold start TapeScoreLow
         let state = tape_engine.get_mut_state(SymbolId(tick.symbol_id));
@@ -157,7 +156,7 @@ fn main() -> anyhow::Result<()> {
         let event = Event {
             symbol_id: SymbolId(tick.symbol_id),
             ts_src: tick.ts_src,
-            ts_rx: tick.ts_src,   // No network delay in replay
+            ts_rx: tick.ts_src, // No network delay in replay
             ts_proc: tick.ts_src,
             seq: 0,
             kind: EventKind::Tick(TickData {
@@ -183,9 +182,7 @@ fn main() -> anyhow::Result<()> {
 
         let (action, reject_reason) = match result {
             Ok(_) => ("ENTER".to_string(), None),
-            Err(reason) => {
-                ("REJECT".to_string(), Some(format!("{:?}", reason)))
-            }
+            Err(reason) => ("REJECT".to_string(), Some(format!("{:?}", reason))),
         };
 
         decisions.push(GoldenDecision {
@@ -200,7 +197,11 @@ fn main() -> anyhow::Result<()> {
 
     let golden_json = serde_json::to_string_pretty(&decisions)?;
     std::fs::write(&output_file, golden_json)?;
-    println!("Golden file written: {} decisions → {:?}", decisions.len(), output_file);
+    println!(
+        "Golden file written: {} decisions → {:?}",
+        decisions.len(),
+        output_file
+    );
 
     Ok(())
 }
@@ -215,12 +216,21 @@ fn compare_golden(file_a: &str, file_b: &str) -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    let matches = a.iter().zip(b.iter())
-        .filter(|(da, db)| da.action == db.action && da.reject_reason == db.reject_reason && da.ts_src == db.ts_src)
+    let matches = a
+        .iter()
+        .zip(b.iter())
+        .filter(|(da, db)| {
+            da.action == db.action && da.reject_reason == db.reject_reason && da.ts_src == db.ts_src
+        })
         .count();
 
     let match_pct = matches as f64 / a.len() as f64 * 100.0;
-    println!("Golden comparison: {:.2}% match ({}/{} decisions)", match_pct, matches, a.len());
+    println!(
+        "Golden comparison: {:.2}% match ({}/{} decisions)",
+        match_pct,
+        matches,
+        a.len()
+    );
 
     if match_pct < 99.0 {
         println!("FAIL: match < 99% threshold");

@@ -14,7 +14,10 @@ mod tests {
         let et_ordinal = market_day_boundary(ts_micros);
         // Expecting ordinal for 2024-06-10
         let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-        let expected = chrono::NaiveDate::from_ymd_opt(2024, 6, 10).unwrap().signed_duration_since(epoch).num_days() as u32;
+        let expected = chrono::NaiveDate::from_ymd_opt(2024, 6, 10)
+            .unwrap()
+            .signed_duration_since(epoch)
+            .num_days() as u32;
         assert_eq!(et_ordinal, expected);
     }
 
@@ -26,7 +29,10 @@ mod tests {
 
         let et_ordinal = market_day_boundary(ts_micros);
         let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-        let expected = chrono::NaiveDate::from_ymd_opt(2024, 6, 10).unwrap().signed_duration_since(epoch).num_days() as u32;
+        let expected = chrono::NaiveDate::from_ymd_opt(2024, 6, 10)
+            .unwrap()
+            .signed_duration_since(epoch)
+            .num_days() as u32;
         assert_eq!(et_ordinal, expected);
     }
 
@@ -47,7 +53,10 @@ mod tests {
         assert_eq!(et1, et2);
 
         let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-        let expected = chrono::NaiveDate::from_ymd_opt(2024, 3, 10).unwrap().signed_duration_since(epoch).num_days() as u32;
+        let expected = chrono::NaiveDate::from_ymd_opt(2024, 3, 10)
+            .unwrap()
+            .signed_duration_since(epoch)
+            .num_days() as u32;
         assert_eq!(et1, expected);
     }
 
@@ -68,7 +77,10 @@ mod tests {
         assert_eq!(et1, et2);
 
         let epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
-        let expected = chrono::NaiveDate::from_ymd_opt(2024, 11, 3).unwrap().signed_duration_since(epoch).num_days() as u32;
+        let expected = chrono::NaiveDate::from_ymd_opt(2024, 11, 3)
+            .unwrap()
+            .signed_duration_since(epoch)
+            .num_days() as u32;
         assert_eq!(et1, expected);
     }
 }

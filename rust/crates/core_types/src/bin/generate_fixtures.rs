@@ -3,7 +3,6 @@ use core_types::{
     OmsCommand, OrderRequest, OrderStatus, OrderStatusData, OrderType, RejectData, Side,
     SnapshotData, SymbolId, TickData, TimeInForce,
 };
-use core_types::{Event, EventKind, TickData, SymbolId, OmsCommand, OrderRequest, Side, OrderType, TimeInForce, CancelRequest};
 use std::fs::File;
 use std::io::Write;
 
@@ -308,7 +307,6 @@ fn main() {
         &rmp_serde::to_vec_named(&valid_order).unwrap(),
     );
 
-
     // Invalid new order: size 0
     let invalid_order = OmsCommand::NewOrder(OrderRequest {
         symbol_id: SymbolId(42),
@@ -336,9 +334,7 @@ fn main() {
     // Manual dictionary for malformed payloads
 
     // Valid Cancel Order Command
-    let valid_cancel = OmsCommand::CancelOrder(CancelRequest {
-        order_id: 999,
-    });
+    let valid_cancel = OmsCommand::CancelOrder(CancelRequest { order_id: 999 });
 
     // We can't easily construct a struct missing a required field using Rust struct,
     // so we will construct a HashMap and serialize it to simulate missing fields and invalid enums.
@@ -355,13 +351,11 @@ fn main() {
         &rmp_serde::to_vec_named(&invalid_cancel).unwrap(),
     );
 
-    #[derive(Serialize)]
-    struct InvalidEnumOrderRequest {
-        pub symbol_id: SymbolId,
-        pub side: u8,
     // Missing order_id completely
-    cancel_content.insert("some_other_field", 123);
-    invalid_cancel.insert("CancelOrder", cancel_content);
+    let mut cancel_content2 = HashMap::new();
+    cancel_content2.insert("some_other_field", 123);
+    let mut invalid_cancel2 = HashMap::new();
+    invalid_cancel2.insert("CancelOrder", cancel_content2);
 
     // Invalid enum: side = 99
     #[derive(Serialize)]
@@ -385,7 +379,6 @@ fn main() {
 
     let invalid_enum_order = InvalidEnumOmsCommand::NewOrder(InvalidEnumOrderRequest {
         symbol_id: SymbolId(42),
-        side: 99,
         side: 99, // Invalid
         qty: 100,
         order_type: OrderType::Limit,
@@ -408,16 +401,40 @@ fn main() {
     let fixtures_dir = dir.join("fixtures").join("ipc");
     std::fs::create_dir_all(&fixtures_dir).unwrap();
 
-    File::create(fixtures_dir.join("valid_tick.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&valid_tick).unwrap()).unwrap();
-    File::create(fixtures_dir.join("invalid_tick.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&invalid_tick).unwrap()).unwrap();
-    File::create(fixtures_dir.join("invalid_timestamp_tick.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&future_tick).unwrap()).unwrap();
+    File::create(fixtures_dir.join("valid_tick.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&valid_tick).unwrap())
+        .unwrap();
+    File::create(fixtures_dir.join("invalid_tick.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&invalid_tick).unwrap())
+        .unwrap();
+    File::create(fixtures_dir.join("invalid_timestamp_tick.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&future_tick).unwrap())
+        .unwrap();
 
-    File::create(fixtures_dir.join("valid_new_order.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&valid_order).unwrap()).unwrap();
-    File::create(fixtures_dir.join("invalid_new_order.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&invalid_order).unwrap()).unwrap();
-    File::create(fixtures_dir.join("invalid_enum_order.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&invalid_enum_order).unwrap()).unwrap();
+    File::create(fixtures_dir.join("valid_new_order.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&valid_order).unwrap())
+        .unwrap();
+    File::create(fixtures_dir.join("invalid_new_order.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&invalid_order).unwrap())
+        .unwrap();
+    File::create(fixtures_dir.join("invalid_enum_order.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&invalid_enum_order).unwrap())
+        .unwrap();
 
-    File::create(fixtures_dir.join("valid_cancel_order.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&valid_cancel).unwrap()).unwrap();
-    File::create(fixtures_dir.join("invalid_cancel_order.msgpack")).unwrap().write_all(&rmp_serde::to_vec_named(&invalid_cancel).unwrap()).unwrap();
+    File::create(fixtures_dir.join("valid_cancel_order.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&valid_cancel).unwrap())
+        .unwrap();
+    File::create(fixtures_dir.join("invalid_cancel_order.msgpack"))
+        .unwrap()
+        .write_all(&rmp_serde::to_vec_named(&invalid_cancel).unwrap())
+        .unwrap();
 
     println!("Fixtures generated successfully.");
 }

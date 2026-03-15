@@ -228,6 +228,8 @@
       const token = urlParams.get('token') || '';
       ws = new WebSocket(`ws://${location.host}/ws?token=${token}`);
 
+      ws = new WebSocket(`ws://${location.host}/ws`);
+
       ws.onopen = () => {
         setWsState('connected');
       };

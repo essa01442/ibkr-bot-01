@@ -184,6 +184,7 @@ pub async fn run(config: AppConfig) -> Result<(), Box<dyn std::error::Error>> {
             "{}/rps_commands.sock",
             config_clone_for_oms.system.runtime_socket_dir
         );
+        let cmd_sock_path = format!("{}/rps_commands.sock", config_clone_for_oms.system.runtime_socket_dir);
         // Instantiate BridgeCmdSender once outside the loop for performance
         #[cfg(not(feature = "paper_mode"))]
         let cmd_sender = bridge_rx::cmd_sender::BridgeCmdSender::new(&cmd_sock_path)

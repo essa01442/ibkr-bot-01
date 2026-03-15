@@ -39,6 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tx: tx.clone(),
         auth_token: config.dashboard.auth_token.clone(),
     });
+    let dashboard_state = Arc::new(dashboard::DashboardState { tx: tx.clone(), auth_token: config.dashboard.auth_token.clone() });
 
     // Ensure we do not broadcast synthetic 'Normal' / 0.0 PNL as live data
     tokio::spawn(async move {
@@ -78,6 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "SECURITY WARNING: Dashboard is configured to bind to a non-localhost address ({})",
             bind_addr
         );
+        log::warn!("SECURITY WARNING: Dashboard is configured to bind to a non-localhost address ({})", bind_addr);
         if !config.dashboard.allow_insecure_remote {
             log::error!("FATAL: ws:// on non-localhost is disabled by default for security. Set dashboard.allow_insecure_remote = true to override.");
             std::process::exit(1);
@@ -90,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let app = dashboard::router(dashboard_state, config.dashboard.auth_token.clone());
+    let app = dashboard::router(dashboard_state);
     let listener = tokio::net::TcpListener::bind(bind_addr).await.unwrap();
     info!("Starting Dashboard Server on {}", bind_addr);
 

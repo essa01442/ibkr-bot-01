@@ -39,6 +39,9 @@ async def run_tests(sock_path):
     cmd_thread = threading.Thread(target=command_server_thread, args=(cmd_path, cancel_event))
     cmd_thread.start()
 
+async def run_tests(sock_path):
+    print("Starting integration tests on", sock_path)
+
     # Scenario 1: Valid Message
     tick_event = {
         "ts_src": int(time.time() * 1_000_000),
@@ -83,11 +86,13 @@ async def run_tests(sock_path):
     print("Sent malformed payload.")
 
     # Scenario 5 & 6: Heartbeat missing, then reconnect
+    # We will send a heartbeat, wait > 1s, send another.
     heartbeat_event = {
         "ts_src": int(time.time() * 1_000_000),
         "ts_rx": int(time.time() * 1_000_000),
         "ts_proc": int(time.time() * 1_000_000),
         "seq": 3,
+        "seq": 2,
         "symbol_id": 42,
         "kind": "Heartbeat"
     }

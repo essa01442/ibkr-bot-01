@@ -2,6 +2,8 @@ use bridge_rx::BridgeRxTask;
 use core_types::{CancelRequest, Event, EventKind, OmsCommand};
 use event_bus::EventBus;
 use std::os::unix::net::UnixDatagram;
+use core_types::{Event, EventKind};
+use event_bus::EventBus;
 use tokio::sync::mpsc;
 use tokio::task;
 
@@ -15,6 +17,10 @@ async fn test_python_rust_integration_scenarios() {
     let (_, dummy_rx) = mpsc::channel(1); // not used
 
     let bus = EventBus { tx, rx: dummy_rx };
+    let bus = EventBus {
+        tx,
+        rx: dummy_rx,
+    };
 
     let mut bridge_task = BridgeRxTask::new(socket_path, bus).unwrap();
 
@@ -37,6 +43,9 @@ async fn test_python_rust_integration_scenarios() {
     // Run python test script which will connect to `socket_path`
     // pass socket_path as an argument
     let mut python_cmd = tokio::process::Command::new("python3");
+    // Run python test script which will connect to `socket_path`
+    // pass socket_path as an argument
+    let mut python_cmd = std::process::Command::new("python3");
 
     let current_dir = std::env::current_dir().unwrap();
     let mut script_path = current_dir.clone();
@@ -63,6 +72,13 @@ async fn test_python_rust_integration_scenarios() {
     let status = child.wait().await.unwrap();
 
     assert!(status.success(), "Integration tests failed");
+    let output = python_cmd.output().expect("Failed to execute python");
+
+    if !output.status.success() {
+        println!("Python stderr: {}", String::from_utf8_lossy(&output.stderr));
+        println!("Python stdout: {}", String::from_utf8_lossy(&output.stdout));
+    }
+    assert!(output.status.success(), "Integration tests failed");
 
     // Validate we received the events
     let event = rx.recv().await.expect("Failed to receive tick event");
@@ -82,6 +98,10 @@ async fn test_python_rust_integration_scenarios() {
         .recv()
         .await
         .expect("Failed to receive degraded mode true");
+    let hb1 = rx.recv().await.expect("Failed to receive first heartbeat");
+    assert!(matches!(hb1.kind, EventKind::Heartbeat));
+
+    let degraded = degraded_rx.recv().await.expect("Failed to receive degraded mode true");
     assert!(degraded, "Should have entered degraded mode");
 
     let hb2 = rx.recv().await.expect("Failed to receive second heartbeat");
@@ -91,6 +111,7 @@ async fn test_python_rust_integration_scenarios() {
         .recv()
         .await
         .expect("Failed to receive degraded mode false");
+    let recovered = degraded_rx.recv().await.expect("Failed to receive degraded mode false");
     assert!(!recovered, "Should have recovered from degraded mode");
 
     task_handle.abort();

@@ -8,13 +8,18 @@ use axum::{
     },
     http::{Request, StatusCode},
     middleware::{self, Next},
+    extract::{ws::{WebSocket, WebSocketUpgrade, Message}, State, Query},
     response::IntoResponse,
     response::Response,
     routing::get,
     Router,
+    http::{Request, StatusCode},
+    middleware::{self, Next},
+    response::Response,
 };
 use serde::Deserialize;
 use serde::Serialize;
+use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tower_http::services::ServeDir;
@@ -76,6 +81,7 @@ async fn auth_middleware(
         "Rejected unauthenticated dashboard request to: {}",
         req.uri().path()
     );
+    log::warn!("Rejected unauthenticated dashboard request to: {}", req.uri().path());
     Err(StatusCode::UNAUTHORIZED)
 }
 
@@ -87,6 +93,8 @@ pub fn router(state: Arc<DashboardState>, auth_token: String) -> Router {
 
     // Public routes
     let public_routes = Router::new().route("/health", get(|| async { "ok" }));
+    let public_routes = Router::new()
+        .route("/health", get(|| async { "ok" }));
 
     // Protected routes requiring authentication
     let protected_routes = Router::new()
@@ -98,6 +106,7 @@ pub fn router(state: Arc<DashboardState>, auth_token: String) -> Router {
             state_with_auth.clone(),
             auth_middleware,
         ))
+        .route_layer(middleware::from_fn_with_state(state_with_auth.clone(), auth_middleware))
         .with_state(state_with_auth);
 
     Router::new().merge(public_routes).merge(protected_routes)

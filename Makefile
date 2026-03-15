@@ -1,4 +1,5 @@
 .PHONY: test-integration test release-gate
+.PHONY: test-integration test
 
 test-integration:
 	@echo "Installing python dependencies..."

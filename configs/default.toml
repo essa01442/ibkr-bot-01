@@ -87,3 +87,8 @@ runtime_socket_dir = "/tmp/rps"
 bind_address = "127.0.0.1:8080"
 allow_insecure_remote = false
 auth_token = ""
+auth_token = "replace_me_with_a_secure_token"
+
+[dashboard]
+bind_address = "127.0.0.1:8080"
+allow_insecure_remote = false
